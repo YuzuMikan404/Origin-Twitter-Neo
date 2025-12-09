@@ -4,10 +4,10 @@ import os
 import re
 import requests
 import sys
-import glob
 
-GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo"  # リポジトリ名を修正
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") 
+# リポジトリ名を 'YuzuMikan404/Origin-Twitter-Neo' に修正
+GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo"
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 if not GITHUB_TOKEN:
     print("Error: GITHUB_TOKEN environment variable is not set.")
     sys.exit(1)
@@ -15,46 +15,38 @@ if not GITHUB_TOKEN:
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 APK_DIR = "patched_apks"
 
-def extract_version_from_apk_files():
-    """生成されたAPKファイルからバージョン情報を抽出"""
-    print(f"Looking for APK files in {APK_DIR}...")
+def extract_version_from_downloaded_apk():
+    """ダウンロードしたAPKのファイル名から正確なバージョンを抽出"""
+    print("Looking for downloaded APK file...")
     
-    if not os.path.exists(APK_DIR):
-        print(f"Error: Directory {APK_DIR} does not exist.")
+    # 修正点: 単純な置換ではなく、正規表現で正確にバージョンを抽出
+    monsivamon_tag = os.getenv('monsivamon_TAG')
+    if not monsivamon_tag:
+        print("Error: monsivamon_TAG is not set.")
         return None, None
     
-    apk_files = list(glob.glob(os.path.join(APK_DIR, "*.apk")))
-    if not apk_files:
-        print(f"No APK files found in {APK_DIR}")
-        return None, None
+    print(f"Raw monsivamon_TAG from env: {monsivamon_tag}")
     
-    # 最初のAPKファイルからバージョンを抽出
-    first_apk = apk_files[0]
-    apk_name = os.path.basename(first_apk)
-    
-    # 期待される命名パターン: Origin-Twitter.{Color}.v{version}-release.{release_id}.apk
-    pattern = r"Origin-Twitter\.\w+\.v(\d+\.\d+\.\d+)-release\.(\d+)\.apk"
-    match = re.search(pattern, apk_name)
+    # 例: "11.46.0-release.0" から "11.46.0" と "0" を抽出
+    version_pattern = r'(\d+\.\d+\.\d+)-release\.(\d+)'
+    match = re.match(version_pattern, monsivamon_tag)
     
     if match:
-        version = match.group(1)
-        release_id = match.group(2)
-        print(f"Detected version: {version}, release_id: {release_id}")
+        version = match.group(1)  # "11.46.0"
+        release_id = match.group(2)  # "0"
+        print(f"✅ Parsed version: {version}, release_id: {release_id}")
         return version, release_id
-    
-    # フォールバック: 環境変数から取得
-    monsivamon_tag = os.getenv('monsivamon_TAG')
-    if monsivamon_tag:
-        clean_version = monsivamon_tag.replace('-release', '')
+    else:
+        # フォールバック: 環境変数から直接抽出を試みる
+        clean_version = monsivamon_tag.split('-release')[0]
         version = clean_version
         release_id = "0"
-        print(f"Using version from environment: {version}, release_id: {release_id}")
+        print(f"⚠️  Using fallback version: {version}, release_id: {release_id}")
         return version, release_id
-    
-    print("Error: Unable to extract version information.")
-    return None, None
 
 def create_github_release(version, release_id):
+    """GitHubリリースを作成"""
+    # 修正点: 正しいフォーマットのタグ名を作成
     tag_name = f"{version}-release.{release_id}"
     print(f"Creating GitHub release with tag: {tag_name}")
     
@@ -63,15 +55,14 @@ def create_github_release(version, release_id):
         "Accept": "application/vnd.github.v3+json"
     }
     
-    # 既存のリリースをチェック
+    # 1. 既存のリリースをチェック
     response = requests.get(GITHUB_API, headers=headers)
     if response.status_code == 200:
         releases = response.json()
         for release in releases:
             if release.get("tag_name") == tag_name:
-                print(f"Release {tag_name} already exists. Using existing release.")
+                print(f"✅ Release {tag_name} already exists. Using existing release.")
                 return release["id"], release["upload_url"].split("{")[0]
-    
     # 新規リリースを作成
     # リリース本文を作成
     body = f"""Auto-generated release: Origin Twitter version {version}-release.{release_id}
@@ -93,10 +84,10 @@ def create_github_release(version, release_id):
 - Based on monsivamon's Piko Twitter mod
 """
     
-    data = {
+        data = {
         "tag_name": tag_name,
         "name": f"Origin Twitter v{version}-release.{release_id}",
-        "body": body,
+        "body": f"Auto-generated release: Origin Twitter version {version}-release.{release_id}.",
         "draft": False,
         "prerelease": False
     }
@@ -106,10 +97,10 @@ def create_github_release(version, release_id):
     
     if response.status_code == 201:
         release_info = response.json()
-        print(f"GitHub Release created: {release_info['html_url']}")
+        print(f"✅ GitHub Release created: {release_info['html_url']}")
         return release_info["id"], release_info["upload_url"].split("{")[0]
     else:
-        print(f"Failed to create release: {response.status_code}")
+        print(f"❌ Failed to create release: {response.status_code}")
         print(f"Response: {response.text}")
         return None, None
 
