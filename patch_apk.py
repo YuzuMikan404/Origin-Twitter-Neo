@@ -61,6 +61,8 @@ if APK_TOOL is None:
 else:
     print(f"Using apktool command: {APK_TOOL}")
 
+# ... (ファイルの先頭部分は変更なし) ...
+
 def main():
     # monsivamon_TAG を使用
     monsivamon_tag = os.getenv('monsivamon_TAG')
@@ -71,25 +73,19 @@ def main():
     
     print(f"Original monsivamon_TAG: {monsivamon_tag}")
     
-    # APKファイルの検索
-    apk_path = None
-    downloads_dir = "downloads"
+    # 修正点: 正規表現で正確にバージョンを抽出
+    version_pattern = r'(\d+\.\d+\.\d+)-release\.(\d+)'
+    match = re.match(version_pattern, monsivamon_tag)
     
-    if os.path.exists(downloads_dir):
-        for file in os.listdir(downloads_dir):
-            if file.endswith(".apk"):
-                apk_path = os.path.join(downloads_dir, file)
-                break
+    if match:
+        clean_version = match.group(1)  # "11.46.0"
+        release_id = match.group(2)     # "0"
+    else:
+        # フォールバック
+        clean_version = monsivamon_tag.split('-release')[0]
+        release_id = "0"
     
-    if not apk_path:
-        print("Error: APK file not found in downloads directory.")
-        if os.path.exists(downloads_dir):
-            print("Files in downloads directory:")
-            for file in os.listdir(downloads_dir):
-                print(f"  - {file}")
-        sys.exit(1)
-    
-    print(f"Found APK at: {apk_path}")
+    print(f"Clean version: {clean_version}, Release ID: {release_id}")
     
     # バージョン情報を抽出
     clean_version = monsivamon_tag.replace('-release', '')
@@ -416,3 +412,4 @@ def find_zipalign():
 
 if __name__ == "__main__":
     main()
+
