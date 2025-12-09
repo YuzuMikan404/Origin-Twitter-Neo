@@ -4,6 +4,7 @@ import os
 import re
 import requests
 import sys
+import glob  # 追加: globモジュールをインポート
 
 # リポジトリ名を 'YuzuMikan404/Origin-Twitter-Neo' に修正
 GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo"
@@ -63,8 +64,9 @@ def create_github_release(version, release_id):
             if release.get("tag_name") == tag_name:
                 print(f"✅ Release {tag_name} already exists. Using existing release.")
                 return release["id"], release["upload_url"].split("{")[0]
-    # 新規リリースを作成
-    # リリース本文を作成
+    
+    # 2. 新規リリース作成
+    # 修正点: 詳細なリリース本文を使用
     body = f"""Auto-generated release: Origin Twitter version {version}-release.{release_id}
 
 ## Available Color Themes
@@ -84,10 +86,10 @@ def create_github_release(version, release_id):
 - Based on monsivamon's Piko Twitter mod
 """
     
-        data = {
+    data = {
         "tag_name": tag_name,
         "name": f"Origin Twitter v{version}-release.{release_id}",
-        "body": f"Auto-generated release: Origin Twitter version {version}-release.{release_id}.",
+        "body": body,  # 修正: 詳細なbody変数を使用
         "draft": False,
         "prerelease": False
     }
@@ -147,8 +149,8 @@ def upload_apk_to_github(release_id, upload_url, apk_path):
 def release_apks():
     print("Starting APK release process...")
     
-    # バージョン情報を抽出
-    version, release_id = extract_version_from_apk_files()
+    # 修正: 正しい関数名を呼び出す
+    version, release_id = extract_version_from_downloaded_apk()  # 関数名を修正
     if not version or not release_id:
         print("Could not extract version information.")
         return
