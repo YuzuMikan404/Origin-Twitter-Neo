@@ -66,17 +66,17 @@ jobs:
       - name: Install apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
-          # apktoolのインストール
-          sudo apt-get install -y openjdk-17-jdk
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
-          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.11.1.jar -O /tmp/apktool.jar
+          # シンプルなインストール方法
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.13.0/apktool_2.13.0.jar -O apktool.jar
+          sudo mv apktool.jar /usr/local/bin/
           
-          sudo chmod +x /tmp/apktool /tmp/apktool.jar
-          sudo mv /tmp/apktool /usr/local/bin/
-          sudo mv /tmp/apktool.jar /usr/local/bin/
+          # エイリアスを作成
+          echo '#!/bin/bash' | sudo tee /usr/local/bin/apktool
+          echo 'java -jar /usr/local/bin/apktool.jar "$@"' | sudo tee -a /usr/local/bin/apktool
+          sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
           
-          echo "apktool version:"
-          apktool --version
+          echo "Installed apktool version:"
+          java -jar /usr/local/bin/apktool.jar --version
 
       - name: Print tool versions
         if: ${{ env.SKIP == 'false' }}
@@ -84,7 +84,7 @@ jobs:
           echo "Java version:"
           java -version
           echo "apktool version:"
-          apktool --version
+          java -jar /usr/local/bin/apktool.jar --version
           echo "aapt2 version:"
           $HOME/android-sdk/build-tools/34.0.0/aapt2 version
 
@@ -130,21 +130,44 @@ jobs:
           # 出力ディレクトリ作成
           mkdir -p "$OUTPUT_DIR"
           
+          # aapt2とzipalignのパスを取得
+          AAPT2_PATH="$HOME/android-sdk/build-tools/34.0.0/aapt2"
+          ZIPALIGN_PATH="$HOME/android-sdk/build-tools/34.0.0/zipalign"
+          
+          if [ ! -f "$AAPT2_PATH" ]; then
+            echo "Error: aapt2 not found at $AAPT2_PATH"
+            find $HOME/android-sdk -name aapt2 2>/dev/null || true
+            exit 1
+          fi
+          
           # APKのビルド
-          echo "Building APK..."
-          apktool b "$INPUT_DIR" -o "unsigned.apk"
+          echo "Building APK with apktool..."
+          
+          # apktoolが--use-aapt2をサポートしているか確認
+          if java -jar /usr/local/bin/apktool.jar b --help 2>&1 | grep -q "use-aapt2"; then
+            echo "Using --use-aapt2 option"
+            java -jar /usr/local/bin/apktool.jar b "$INPUT_DIR" -o "unsigned.apk" --use-aapt2 "$AAPT2_PATH"
+          else:
+            echo "Using default build (no --use-aapt2 option)"
+            java -jar /usr/local/bin/apktool.jar b "$INPUT_DIR" -o "unsigned.apk"
           
           # ビルドの成否を確認
           if [ ! -f "unsigned.apk" ]; then
             echo "Error: Failed to build APK"
+            # エラーログがあれば表示
+            if [ -f "$INPUT_DIR/build/apktool.yml" ]; then
+              echo "Checking for error logs..."
+              find "$INPUT_DIR" -name "*.log" -exec cat {} \; 2>/dev/null || true
+            fi
             exit 1
           fi
           
-          # キーストアの確認
+          # キーストアの確認と作成
           if [ ! -f "$KEYSTORE" ]; then
-            echo "Error: Keystore file $KEYSTORE not found"
-            ls -la
-            exit 1
+            echo "Creating new keystore..."
+            keytool -genkey -v -keystore "$KEYSTORE" -alias "$ALIAS" -keyalg RSA \
+              -keysize 2048 -validity 10000 -storepass "$STOREPASS" -keypass "$KEYPASS" \
+              -dname "CN=OriginTwitter, OU=Development, O=YuzuMikan404, L=Tokyo, C=JP"
           fi
           
           # APKの署名
@@ -157,7 +180,7 @@ jobs:
           
           # zipalignで最適化
           echo "Optimizing APK..."
-          $HOME/android-sdk/build-tools/34.0.0/zipalign -v 4 "unsigned.apk" "$OUTPUT_DIR/twitter-piko-v$CLEAN_VERSION-signed.apk"
+          "$ZIPALIGN_PATH" -v 4 "unsigned.apk" "$OUTPUT_DIR/twitter-piko-v$CLEAN_VERSION-signed.apk"
           
           # 結果の確認
           if [ -f "$OUTPUT_DIR/twitter-piko-v$CLEAN_VERSION-signed.apk" ]; then
