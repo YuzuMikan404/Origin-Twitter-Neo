@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 
+import os
+import subprocess
+import yaml
+import xml.etree.ElementTree as ET
+import re
+
 KEYSTORE_PATH = "./origin-twitter.keystore"
 ALIAS = "origin"
 STOREPASS = "123456789"
 KEYPASS = "123456789"
-
 
 THEME_COLORS = {
     "1d9bf0": "Blue",
@@ -19,22 +24,22 @@ THEME_COLORS = {
     "ffadc0": "MateChan"
 }
 
+# apktoolのパス（環境に合わせて修正してください）
+APK_TOOL = "apktool"
+APK_VERSION = ""
 
 # Obtaining the version from GitHub environment variables
 apk_version = os.getenv('YuzuMikan404_TAG')  
 apk_file_name = f"twitter-piko-v{apk_version}.apk" 
 apk_path = f"downloads/{apk_file_name}"  
 
-
 print(f"APK Path: {apk_path}")
-
 
 def decompile_apk(apk_path, output_path):
     print(f"Checking if APK file exists: {apk_path}")
     if not os.path.exists(apk_path):
         raise FileNotFoundError(f"APK file not found: {apk_path}")
     subprocess.run([APK_TOOL, "d", apk_path, "-o", output_path, "--force"], check=True)
-
 
 def update_apktool_yml(decompiled_path):
     """
@@ -54,7 +59,6 @@ def update_apktool_yml(decompiled_path):
     else:
         print(f"{yml_path} not found. Skipping update for doNotCompress.")
 
-
 def modify_manifest(decompiled_path):
     """
     Change the android:extractNativeLibs attribute of the <application> tag in AndroidManifest.xml to true
@@ -71,7 +75,6 @@ def modify_manifest(decompiled_path):
         tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
         print("Modified AndroidManifest.xml: set android:extractNativeLibs to true")
 
-
 def get_apk_version(apk_path):
     global APK_VERSION
     match = re.search(r"twitter-piko-v(\d+\.\d+\.\d+)", apk_path)
@@ -80,7 +83,6 @@ def get_apk_version(apk_path):
     else:
         APK_VERSION = "unknown"
     print(f"Detected APK Version: {APK_VERSION}")
-
 
 def modify_xml(decompiled_path):
     xml_files = [
@@ -97,3 +99,10 @@ def modify_xml(decompiled_path):
         content = content.replace("@color/gray_1100", "@color/twitter_blue")
         content = re.sub(r"#ff1d9bf0|#ff1da1f2", "@color/twitter_blue", content)
         with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)  # 修正：write文を追加
+        print(f"Modified {xml_file}")
+
+# メイン処理を追加（必要に応じて）
+if __name__ == "__main__":
+    # 必要な処理をここに追加
+    pass
