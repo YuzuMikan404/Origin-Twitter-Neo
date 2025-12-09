@@ -18,15 +18,15 @@ jobs:
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
-          CRIMERA_TAG=$(curl -s https://api.github.com/repos/crimera/twitter-apk/releases/latest | jq -r .tag_name)
-          echo "CRIMERA_TAG=${CRIMERA_TAG}" >> $GITHUB_ENV
-          MONEFIERA_TAG=$(curl -s https://api.github.com/repos/monefiera/Origin-Twitter/releases/latest | jq -r .tag_name)
-          echo "MONEFIERA_TAG=${MONEFIERA_TAG}" >> $GITHUB_ENV
+          monsivamon_TAG=$(curl -s https://api.github.com/repos/monsivamon/twitter-apk/releases/latest | jq -r .tag_name)
+          echo "monsivamon_TAG=${CRIMERA_TAG}" >> $GITHUB_ENV
+          YuzuMikan404_TAG=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter/releases/latest | jq -r .tag_name)
+          echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
 
       - name: Check if releases match
         id: check_releases
         run: |
-          if [ "${{ env.CRIMERA_TAG }}" == "${{ env.MONEFIERA_TAG }}" ]; then
+          if [ "${{ env.monsivamon_TAG }}" == "${{ env.monsivamon_TAG }}" ]; then
             echo "Releases match. Skipping download and processing."
             echo "SKIP=false" >> $GITHUB_ENV
           else
@@ -79,7 +79,7 @@ jobs:
       - name: Download APK file
         if: ${{ env.SKIP == 'false' }}
         run: |
-          wget "https://github.com/crimera/twitter-apk/releases/download/${{ env.CRIMERA_TAG }}/twitter-piko-v${{ env.CRIMERA_TAG }}.apk" -O downloads/twitter-piko-v${{ env.CRIMERA_TAG }}.apk
+          wget "https://github.com/monsivamon/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-v${{ env.monsivamon_TAG }}.apk" -O downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk
 
       - name: List files in downloads directory
         if: ${{ env.SKIP == 'false' }}
@@ -94,3 +94,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.MONE_FIERA_TOKEN }}
         run: python release_apk.py
+
