@@ -63,41 +63,23 @@ jobs:
           echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
           echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
 
-      - name: Install apktool (Fixed)
+      - name: Install apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
-          echo "=== Installing apktool ==="
-          # 1. 必要なJavaをインストール
-          sudo apt-get update && sudo apt-get install -y openjdk-17-jdk
-          
-          # 2. 作業ディレクトリにapktoolをダウンロード & インストール（絶対パスを明確に）
-          APKTOOL_JAR_PATH="$HOME/apktool.jar"
-          APKTOOL_WRAPPER_PATH="$HOME/apktool"
-          
-          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.13.0/apktool_2.13.0.jar -O "$APKTOOL_JAR_PATH"
-          
-          # 3. ラッパースクリプトを作成 (相対パスではなく絶対パスを使う)
-          cat > "$APKTOOL_WRAPPER_PATH" << 'EOF'
-          #!/bin/bash
-          exec java -jar "$HOME/apktool.jar" "$@"
-          EOF
-          
-          chmod +x "$APKTOOL_WRAPPER_PATH" "$APKTOOL_JAR_PATH"
-          
-          # 4. ラッパースクリプトをPATHが通った場所に移動
-          sudo mv "$APKTOOL_WRAPPER_PATH" /usr/local/bin/
-          sudo mv "$APKTOOL_JAR_PATH" /usr/local/bin/
-          
-          # 5. パスを確認し、グローバルなPATH環境変数に追加
-          echo "/usr/local/bin/apktool のインストールを確認:"
-          ls -la /usr/local/bin/apktool*
-          
-          # 現在のセッションと以降のステップのため、PATHを更新
-          echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
-          
-          echo "=== インストール完了、バージョンチェック ==="
-          /usr/local/bin/apktool --version
-
+          echo "=== Apktoolをダウンロード・インストールします (公式スクリプト使用) ==="
+  # 公式インストールスクリプトとJARファイルをダウンロード
+          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar -O /tmp/apktool.jar
+    
+    # システムパスの通った場所に移動し、実行権限を付与
+          sudo mv /tmp/apktool /usr/local/bin/
+          sudo mv /tmp/apktool.jar /usr/local/bin/
+          sudo chmod +x /usr/local/bin/apktool
+    
+    # インストールの確認
+          echo "インストール完了。バージョンを確認:"
+          apktool --version
+       
       - name: Print tool versions
         if: ${{ env.SKIP == 'false' }}
         run: |
@@ -325,3 +307,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
