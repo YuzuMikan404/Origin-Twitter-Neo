@@ -29,35 +29,52 @@ APK_TOOL = "apktool"
 APK_VERSION = ""
 
 def main():
-    # Obtaining the version from GitHub environment variables
-    # YuzuMikan404_TAG が null の場合は monsivamon_TAG を使用
-    apk_version = os.getenv('YuzuMikan404_TAG')
-    if not apk_version or apk_version.lower() == 'null':
-        print("Warning: YuzuMikan404_TAG is null or not set. Using monsivamon_TAG instead.")
-        apk_version = os.getenv('monsivamon_TAG')
+    # monsivamon_TAG を使用
+    monsivamon_tag = os.getenv('monsivamon_TAG')
     
-    if not apk_version or apk_version.lower() == 'null':
-        print("Error: Both YuzuMikan404_TAG and monsivamon_TAG are not set or null.")
+    if not monsivamon_tag or monsivamon_tag.lower() == 'null':
+        print("Error: monsivamon_TAG is not set or null.")
         sys.exit(1)
     
-    # バージョンから "release" サフィックスを削除
-    apk_version = apk_version.replace('-release', '')
+    print(f"Original monsivamon_TAG: {monsivamon_tag}")
     
-    apk_file_name = f"twitter-piko-v{apk_version}.apk"
-    apk_path = f"downloads/{apk_file_name}"
+    # 複数の可能性のあるAPKファイル名を試す
+    possible_filenames = [
+        f"twitter-piko-v{monsivamon_tag}.apk",  # ワークフローがダウンロードするファイル名
+        f"twitter-piko-v{monsivamon_tag.replace('-release', '')}.apk",  # 元の想定ファイル名
+        f"twitter-piko-{monsivamon_tag}.apk",  # 別の可能性
+    ]
     
-    print(f"APK Version: {apk_version}")
-    print(f"APK File Name: {apk_file_name}")
-    print(f"APK Path: {apk_path}")
+    apk_path = None
+    for filename in possible_filenames:
+        test_path = f"downloads/{filename}"
+        print(f"Checking for APK at: {test_path}")
+        if os.path.exists(test_path):
+            apk_path = test_path
+            break
     
-    # ファイルが存在するか確認
-    if not os.path.exists(apk_path):
-        print(f"Error: APK file not found at {apk_path}")
-        print("Please make sure the APK has been downloaded to the downloads/ directory.")
+    if not apk_path:
+        print("Error: APK file not found. Tried the following patterns:")
+        for filename in possible_filenames:
+            print(f"  - downloads/{filename}")
+        
+        # ダウンロードディレクトリの内容を表示
+        if os.path.exists("downloads"):
+            print("\nFiles in downloads directory:")
+            for file in os.listdir("downloads"):
+                print(f"  - {file}")
+        else:
+            print("downloads directory does not exist.")
+        
         sys.exit(1)
+    
+    print(f"Found APK at: {apk_path}")
+    
+    # バージョン情報を抽出（表示用）
+    clean_version = monsivamon_tag.replace('-release', '')
     
     # デコンパイル用のディレクトリを作成
-    output_path = f"decompiled-twitter-{apk_version}"
+    output_path = f"decompiled-twitter-{clean_version}"
     
     # APKをデコンパイル
     try:
