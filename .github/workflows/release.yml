@@ -18,14 +18,24 @@ jobs:
         with:
           python-version: "3.9"
 
+     # 1. リポジトリ名を修正（GitHub Actionsワークフロー内）
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
           monsivamon_TAG=$(curl -s https://api.github.com/repos/monsivamon/twitter-apk/releases/latest | jq -r .tag_name)
           echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
-          YuzuMikan404_TAG=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest | jq -r .tag_name)
-          echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
-
+          
+          # リポジトリ名を 'Origin-Twitter-Neo' に修正し、エラー処理を追加
+          YuzuMikan404_response=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest)
+          if echo "$YuzuMikan404_response" | jq -e '.tag_name' >/dev/null 2>&1; then
+            YuzuMikan404_TAG=$(echo "$YuzuMikan404_response" | jq -r .tag_name)
+            echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
+            echo "✅ Found existing release tag: $YuzuMikan404_TAG"
+          else
+            echo "ℹ️  No existing release found or API error."
+            echo "YuzuMikan404_TAG=" >> $GITHUB_ENV
+          fi
+          
       - name: Check if releases match
         id: check_releases
         run: |
@@ -210,4 +220,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
 
