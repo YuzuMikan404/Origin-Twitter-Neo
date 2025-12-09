@@ -21,15 +21,15 @@ jobs:
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
-          CRIMERA_TAG=$(curl -s https://api.github.com/repos/crimera/twitter-apk/releases/latest | jq -r .tag_name)
-          echo "CRIMERA_TAG=${CRIMERA_TAG}" >> $GITHUB_ENV
-          MONEFIERA_TAG=$(curl -s https://api.github.com/repos/monefiera/Origin-Twitter/releases/latest | jq -r .tag_name)
-          echo "MONEFIERA_TAG=${MONEFIERA_TAG}" >> $GITHUB_ENV
+          monsivamon_TAG=$(curl -s https://api.github.com/repos/monsivamon/twitter-apk/releases/latest | jq -r .tag_name)
+          echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
+          YuzuMikan404_TAG=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter/releases/latest | jq -r .tag_name)
+          echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
 
       - name: Check if releases match
         id: check_releases
         run: |
-          if [ "${{ env.CRIMERA_TAG }}" == "${{ env.MONEFIERA_TAG }}" ]; then
+          if [ "${{ env.monsivamon_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "Releases match. Skipping download and processing."
             echo "SKIP=true" >> $GITHUB_ENV
           else
@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         if: ${{ env.SKIP == 'false' }}
         run: |
-          sudo apt-get update && sudo apt-get install -y curl wget jq unzip openjdk-17-jdk keytool
+          sudo apt-get update && sudo apt-get install -y curl wget jq unzip openjdk-17-jdk
 
       - name: Install Android SDK & Build Tools
         if: ${{ env.SKIP == 'false' }}
@@ -57,7 +57,7 @@ jobs:
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "PATH=$PATH" >> $GITHUB_ENV
-          yes | sdkmanager --install "platform-tools" "build-tools;34.0.0" "cmdline-tools;latest"
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "build-tools;34.0.0"
 
       - name: Set environment variables
         if: ${{ env.SKIP == 'false' }}
@@ -69,59 +69,144 @@ jobs:
       - name: Install apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          chmod +x apktool
-          sudo mv apktool /usr/local/bin/
-          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.11.1.jar -O apktool.jar
-          sudo mv apktool.jar /usr/local/bin/
-
+          echo "=== Apktoolをダウンロード・インストールします (公式スクリプト使用) ==="
+          # 公式インストールスクリプトとJARファイルをダウンロード
+          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar -O /tmp/apktool.jar
+          # システムパスの通った場所に移動し、実行権限を付与
+          sudo mv /tmp/apktool /usr/local/bin/
+          sudo mv /tmp/apktool.jar /usr/local/bin/
+          sudo chmod +x /usr/local/bin/apktool
+          # インストールの確認
+          echo "インストール完了。バージョンを確認:"
+          apktool --version
+       
       - name: Print tool versions
         if: ${{ env.SKIP == 'false' }}
         run: |
           echo "Java version:"
           java -version
-          echo "apktool version:"
-          apktool -version
+          echo "apktool version (full path):"
+          /usr/local/bin/apktool --version || echo "Failed to run /usr/local/bin/apktool"
+          echo "apktool version (via PATH):"
+          apktool --version || echo "'apktool' command not found in PATH"
           echo "aapt2 version:"
-          aapt2 version
+          $HOME/android-sdk/build-tools/34.0.0/aapt2 version
 
       - name: Create downloads directory if not exists
         if: ${{ env.SKIP == 'false' }}
         run: mkdir -p downloads
 
-      - name: Download APK file
+      - name: Download APK file (with retry and fallback)
+        if: ${{ env.SKIP == 'false' }}
+        id: download_apk
+        continue-on-error: true
+        run: |
+          set -e
+
+          DOWNLOAD_URL="https://github.com/monsivamon/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
+          OUTPUT_FILE="downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+
+          echo "Attempting to download APK from: $DOWNLOAD_URL"
+          echo "Output file: $OUTPUT_FILE"
+
+          download_with_curl() {
+            echo "Attempting download with curl (Attempt $1)..."
+            curl -v -L -f "$DOWNLOAD_URL" -o "$OUTPUT_FILE" 2>&1 | tail -20
+            return $?
+          }
+
+          download_with_wget() {
+            echo "Attempting download with wget (Attempt $1)..."
+            wget --verbose --tries=1 --timeout=30 "$DOWNLOAD_URL" -O "$OUTPUT_FILE" 2>&1 | tail -10
+            return $?
+          }
+
+          for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+            echo "--- Download Attempt $ATTEMPT of $MAX_RETRIES ---"
+            
+            if download_with_curl $ATTEMPT; then
+              echo "✅ Download successful with curl on attempt $ATTEMPT."
+              if [ -s "$OUTPUT_FILE" ]; then
+                echo "✅ File verification passed. Size: $(wc -c < "$OUTPUT_FILE") bytes"
+                echo "apk_downloaded=true" >> $GITHUB_ENV
+                exit 0
+              else
+                echo "⚠️  File downloaded but is empty. Retrying..."
+                rm -f "$OUTPUT_FILE"
+              fi
+            else
+              echo "❌ curl failed on attempt $ATTEMPT. Exit code: $?"
+            fi
+
+            if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+              echo "Waiting $RETRY_DELAY seconds before retry..."
+              sleep $RETRY_DELAY
+            elif [ $ATTEMPT -eq $MAX_RETRIES ]; then
+              echo "All curl attempts failed. Trying wget as last resort..."
+              if download_with_wget $ATTEMPT; then
+                if [ -s "$OUTPUT_FILE" ]; then
+                  echo "✅ Wget download successful on final attempt."
+                  echo "apk_downloaded=true" >> $GITHUB_ENV
+                  exit 0
+                fi
+              fi
+            fi
+          done
+
+          echo "❌ ERROR: All download attempts failed after $MAX_RETRIES retries."
+          echo "apk_downloaded=false" >> $GITHUB_ENV
+          exit 1
+
+      - name: Check APK download and handle failure
         if: ${{ env.SKIP == 'false' }}
         run: |
-          wget "https://github.com/crimera/twitter-apk/releases/download/${{ env.CRIMERA_TAG }}/twitter-piko-v${{ env.CRIMERA_TAG }}.apk" -O downloads/twitter-piko-v${{ env.CRIMERA_TAG }}.apk
+          echo "Checking APK download result..."
+          if [ "${{ env.apk_downloaded }}" == "true" ]; then
+            echo "✅ APK download successful. Proceeding with workflow."
+            ls -lh downloads/
+          else
+            echo "❌ APK download failed. The workflow will stop here."
+            exit 1
+          fi
 
       - name: List files in downloads directory
         if: ${{ env.SKIP == 'false' }}
         run: ls -l downloads/
 
       - name: Run Patch APK script
-        if: ${{ env.SKIP == 'false' }}
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         run: python patch_apk.py
 
-      - name: Verify patched APKs
-        if: ${{ env.SKIP == 'false' }}
+      # patch_apk.pyが全てのビルドと署名を行うので、ビルドステップは削除
+
+      - name: Verify generated APKs
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         run: |
-          echo "Checking patched APKs..."
+          echo "Verifying generated APKs..."
           if [ -d "patched_apks" ]; then
-            echo "Patched APKs found:"
+            echo "APKs found in patched_apks directory:"
             ls -lh patched_apks/
             APK_COUNT=$(ls -1 patched_apks/*.apk 2>/dev/null | wc -l)
-            echo "Total APKs: $APK_COUNT"
+            echo "Total APKs generated: $APK_COUNT"
+            
             if [ "$APK_COUNT" -eq 0 ]; then
-              echo "Error: No APKs were generated."
+              echo "❌ No APKs were generated."
               exit 1
+            elif [ "$APK_COUNT" -lt 10 ]; then
+              echo "⚠️  Only $APK_COUNT/10 APKs were generated."
+            else
+              echo "✅ All 10 color variants generated successfully."
             fi
           else
-            echo "Error: patched_apks directory not found."
+            echo "❌ patched_apks directory not found."
             exit 1
           fi
 
       - name: Run Release APK script
-        if: ${{ env.SKIP == 'false' }}
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.MONE_FIERA_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
