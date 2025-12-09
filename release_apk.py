@@ -4,7 +4,7 @@ import os
 import re
 import requests
 import sys
-import glob  # 追加: globモジュールをインポート
+import glob
 
 # リポジトリ名を 'YuzuMikan404/Origin-Twitter-Neo' に修正
 GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo"
@@ -150,7 +150,7 @@ def release_apks():
     print("Starting APK release process...")
     
     # 修正: 正しい関数名を呼び出す
-    version, release_id = extract_version_from_downloaded_apk()  # 関数名を修正
+    version, release_id = extract_version_from_downloaded_apk()
     if not version or not release_id:
         print("Could not extract version information.")
         return
