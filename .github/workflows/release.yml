@@ -2,6 +2,9 @@ name: Auto Patch & Release APK
 
 on:
   workflow_dispatch:
+  schedule:
+  # UTCの15:00（日本時間0:00）に実行
+  - cron: '0 15 * * *'
 
 jobs:
   patch_and_release:
@@ -305,5 +308,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
 
 
