@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         if: ${{ env.SKIP == 'false' }}
         run: |
-          sudo apt-get update && sudo apt-get install -y curl wget jq unzip
+          sudo apt-get update && sudo apt-get install -y curl wget jq unzip openjdk-17-jdk
 
       - name: Install Android SDK & Build Tools
         if: ${{ env.SKIP == 'false' }}
@@ -54,7 +54,7 @@ jobs:
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "PATH=$PATH" >> $GITHUB_ENV
-          yes | sdkmanager --install "platform-tools" "build-tools;34.0.0" "cmdline-tools;latest"
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "build-tools;34.0.0"
 
       - name: Set environment variables
         if: ${{ env.SKIP == 'false' }}
@@ -66,19 +66,27 @@ jobs:
       - name: Install apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
-          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O apktool
-          chmod +x apktool
-          sudo mv apktool /usr/local/bin/
-          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.11.1.jar -O apktool.jar
-          sudo mv apktool.jar /usr/local/bin/
+          # apktoolのインストール
+          sudo apt-get install -y openjdk-17-jdk
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
+          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.11.1.jar -O /tmp/apktool.jar
+          
+          sudo chmod +x /tmp/apktool /tmp/apktool.jar
+          sudo mv /tmp/apktool /usr/local/bin/
+          sudo mv /tmp/apktool.jar /usr/local/bin/
+          
+          echo "apktool version:"
+          apktool --version
 
       - name: Print tool versions
         if: ${{ env.SKIP == 'false' }}
         run: |
+          echo "Java version:"
+          java -version
           echo "apktool version:"
-          apktool -version
+          apktool --version
           echo "aapt2 version:"
-          aapt2 version
+          $HOME/android-sdk/build-tools/34.0.0/aapt2 version
 
       - name: Create downloads directory if not exists
         if: ${{ env.SKIP == 'false' }}
@@ -96,6 +104,69 @@ jobs:
       - name: Run Patch APK script
         if: ${{ env.SKIP == 'false' }}
         run: python patch_apk.py
+
+      - name: Build and sign APK
+        if: ${{ env.SKIP == 'false' }}
+        run: |
+          # バージョンを取得
+          CLEAN_VERSION=$(echo "${{ env.monsivamon_TAG }}" | sed 's/-release//g')
+          echo "Clean version: $CLEAN_VERSION"
+          
+          # 入力ディレクトリ
+          INPUT_DIR="decompiled-twitter-$CLEAN_VERSION"
+          OUTPUT_DIR="patched_apks"
+          KEYSTORE="origin-twitter.keystore"
+          ALIAS="origin"
+          STOREPASS="123456789"
+          KEYPASS="123456789"
+          
+          # 入力ディレクトリの確認
+          if [ ! -d "$INPUT_DIR" ]; then
+            echo "Error: Input directory $INPUT_DIR does not exist."
+            ls -la
+            exit 1
+          fi
+          
+          # 出力ディレクトリ作成
+          mkdir -p "$OUTPUT_DIR"
+          
+          # APKのビルド
+          echo "Building APK..."
+          apktool b "$INPUT_DIR" -o "unsigned.apk"
+          
+          # ビルドの成否を確認
+          if [ ! -f "unsigned.apk" ]; then
+            echo "Error: Failed to build APK"
+            exit 1
+          fi
+          
+          # キーストアの確認
+          if [ ! -f "$KEYSTORE" ]; then
+            echo "Error: Keystore file $KEYSTORE not found"
+            ls -la
+            exit 1
+          fi
+          
+          # APKの署名
+          echo "Signing APK..."
+          jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+            -keystore "$KEYSTORE" \
+            -storepass "$STOREPASS" \
+            -keypass "$KEYPASS" \
+            "unsigned.apk" "$ALIAS"
+          
+          # zipalignで最適化
+          echo "Optimizing APK..."
+          $HOME/android-sdk/build-tools/34.0.0/zipalign -v 4 "unsigned.apk" "$OUTPUT_DIR/twitter-piko-v$CLEAN_VERSION-signed.apk"
+          
+          # 結果の確認
+          if [ -f "$OUTPUT_DIR/twitter-piko-v$CLEAN_VERSION-signed.apk" ]; then
+            echo "Build successful! APK saved to: $OUTPUT_DIR/twitter-piko-v$CLEAN_VERSION-signed.apk"
+            ls -la "$OUTPUT_DIR/"
+          else
+            echo "Error: Failed to create signed APK"
+            exit 1
+          fi
 
       - name: Run Release APK script
         if: ${{ env.SKIP == 'false' }}
