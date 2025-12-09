@@ -5,6 +5,7 @@ import subprocess
 import yaml
 import xml.etree.ElementTree as ET
 import re
+import sys
 
 KEYSTORE_PATH = "./origin-twitter.keystore"
 ALIAS = "origin"
@@ -24,16 +25,66 @@ THEME_COLORS = {
     "ffadc0": "MateChan"
 }
 
-# apktoolのパス（環境に合わせて修正してください）
 APK_TOOL = "apktool"
 APK_VERSION = ""
 
-# Obtaining the version from GitHub environment variables
-apk_version = os.getenv('YuzuMikan404_TAG')  
-apk_file_name = f"twitter-piko-v{apk_version}.apk" 
-apk_path = f"downloads/{apk_file_name}"  
-
-print(f"APK Path: {apk_path}")
+def main():
+    # Obtaining the version from GitHub environment variables
+    # YuzuMikan404_TAG が null の場合は monsivamon_TAG を使用
+    apk_version = os.getenv('YuzuMikan404_TAG')
+    if not apk_version or apk_version.lower() == 'null':
+        print("Warning: YuzuMikan404_TAG is null or not set. Using monsivamon_TAG instead.")
+        apk_version = os.getenv('monsivamon_TAG')
+    
+    if not apk_version or apk_version.lower() == 'null':
+        print("Error: Both YuzuMikan404_TAG and monsivamon_TAG are not set or null.")
+        sys.exit(1)
+    
+    # バージョンから "release" サフィックスを削除
+    apk_version = apk_version.replace('-release', '')
+    
+    apk_file_name = f"twitter-piko-v{apk_version}.apk"
+    apk_path = f"downloads/{apk_file_name}"
+    
+    print(f"APK Version: {apk_version}")
+    print(f"APK File Name: {apk_file_name}")
+    print(f"APK Path: {apk_path}")
+    
+    # ファイルが存在するか確認
+    if not os.path.exists(apk_path):
+        print(f"Error: APK file not found at {apk_path}")
+        print("Please make sure the APK has been downloaded to the downloads/ directory.")
+        sys.exit(1)
+    
+    # デコンパイル用のディレクトリを作成
+    output_path = f"decompiled-twitter-{apk_version}"
+    
+    # APKをデコンパイル
+    try:
+        decompile_apk(apk_path, output_path)
+    except Exception as e:
+        print(f"Error decompiling APK: {e}")
+        sys.exit(1)
+    
+    # apktool.ymlを更新
+    try:
+        update_apktool_yml(output_path)
+    except Exception as e:
+        print(f"Error updating apktool.yml: {e}")
+    
+    # AndroidManifest.xmlを修正
+    try:
+        modify_manifest(output_path)
+    except Exception as e:
+        print(f"Error modifying manifest: {e}")
+    
+    # XMLファイルを修正
+    try:
+        modify_xml(output_path)
+    except Exception as e:
+        print(f"Error modifying XML files: {e}")
+    
+    print(f"Decompilation and modifications completed successfully in {output_path}")
 
 def decompile_apk(apk_path, output_path):
     print(f"Checking if APK file exists: {apk_path}")
@@ -75,15 +126,6 @@ def modify_manifest(decompiled_path):
         tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
         print("Modified AndroidManifest.xml: set android:extractNativeLibs to true")
 
-def get_apk_version(apk_path):
-    global APK_VERSION
-    match = re.search(r"twitter-piko-v(\d+\.\d+\.\d+)", apk_path)
-    if match:
-        APK_VERSION = match.group(1)
-    else:
-        APK_VERSION = "unknown"
-    print(f"Detected APK Version: {APK_VERSION}")
-
 def modify_xml(decompiled_path):
     xml_files = [
         "res/layout/ocf_twitter_logo.xml",
@@ -99,10 +141,8 @@ def modify_xml(decompiled_path):
         content = content.replace("@color/gray_1100", "@color/twitter_blue")
         content = re.sub(r"#ff1d9bf0|#ff1da1f2", "@color/twitter_blue", content)
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)  # 修正：write文を追加
+            f.write(content)
         print(f"Modified {xml_file}")
 
-# メイン処理を追加（必要に応じて）
 if __name__ == "__main__":
-    # 必要な処理をここに追加
-    pass
+    main()
