@@ -25,10 +25,31 @@ THEME_COLORS = {
     "ffadc0": "MateChan"
 }
 
-APK_TOOL = "apktool"
+# apktoolのパスを環境に合わせて設定
+APK_TOOL = "apktool"  # パスが通っていることを期待
 APK_VERSION = ""
 
+def check_apktool():
+    """apktoolが利用可能かチェックする"""
+    try:
+        result = subprocess.run([APK_TOOL, "--version"], 
+                              capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            print(f"apktool found: {result.stdout.strip()}")
+            return True
+        else:
+            print(f"apktool check failed: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"Error checking apktool: {e}")
+        return False
+
 def main():
+    # apktoolのチェック
+    if not check_apktool():
+        print("Error: apktool is not available. Please install it first.")
+        sys.exit(1)
+    
     # monsivamon_TAG を使用
     monsivamon_tag = os.getenv('monsivamon_TAG')
     
@@ -76,6 +97,12 @@ def main():
     # デコンパイル用のディレクトリを作成
     output_path = f"decompiled-twitter-{clean_version}"
     
+    # 既にディレクトリが存在する場合は削除
+    if os.path.exists(output_path):
+        print(f"Removing existing directory: {output_path}")
+        import shutil
+        shutil.rmtree(output_path)
+    
     # APKをデコンパイル
     try:
         decompile_apk(apk_path, output_path)
@@ -107,59 +134,17 @@ def decompile_apk(apk_path, output_path):
     print(f"Checking if APK file exists: {apk_path}")
     if not os.path.exists(apk_path):
         raise FileNotFoundError(f"APK file not found: {apk_path}")
-    subprocess.run([APK_TOOL, "d", apk_path, "-o", output_path, "--force"], check=True)
+    
+    print(f"Decompiling APK to: {output_path}")
+    result = subprocess.run([APK_TOOL, "d", apk_path, "-o", output_path, "--force"], 
+                          capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        print(f"apktool decompile failed with error:")
+        print(f"stdout: {result.stdout}")
+        print(f"stderr: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, result.args)
+    
+    print("Decompilation completed successfully")
 
-def update_apktool_yml(decompiled_path):
-    """
-    Update apktool.yml so that .so files are not recompressed
-    """
-    yml_path = os.path.join(decompiled_path, "apktool.yml")
-    if os.path.exists(yml_path):
-        print(f"Updating doNotCompress in {yml_path}")
-        with open(yml_path, "r", encoding="utf-8") as f:
-            yml_data = yaml.safe_load(f)
-        doNotCompress = yml_data.get("doNotCompress", [])
-        if ".so" not in doNotCompress and "so" not in doNotCompress:
-            doNotCompress.append(".so")
-        yml_data["doNotCompress"] = doNotCompress
-        with open(yml_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(yml_data, f)
-    else:
-        print(f"{yml_path} not found. Skipping update for doNotCompress.")
-
-def modify_manifest(decompiled_path):
-    """
-    Change the android:extractNativeLibs attribute of the <application> tag in AndroidManifest.xml to true
-    """
-    manifest_path = os.path.join(decompiled_path, "AndroidManifest.xml")
-    if not os.path.exists(manifest_path):
-        return
-    ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
-    tree = ET.parse(manifest_path)
-    root = tree.getroot()
-    application = root.find('application')
-    if application is not None:
-        application.set("{http://schemas.android.com/apk/res/android}extractNativeLibs", "true")
-        tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
-        print("Modified AndroidManifest.xml: set android:extractNativeLibs to true")
-
-def modify_xml(decompiled_path):
-    xml_files = [
-        "res/layout/ocf_twitter_logo.xml",
-        "res/layout/login_toolbar_seamful_custom_view.xml"
-    ]
-    for xml_file in xml_files:
-        file_path = os.path.join(decompiled_path, xml_file)
-        if not os.path.exists(file_path):
-            continue
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        content = content.replace("?dynamicColorGray1100", "@color/twitter_blue")
-        content = content.replace("@color/gray_1100", "@color/twitter_blue")
-        content = re.sub(r"#ff1d9bf0|#ff1da1f2", "@color/twitter_blue", content)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"Modified {xml_file}")
-
-if __name__ == "__main__":
-    main()
+# ... 他の関数は同じ ...
