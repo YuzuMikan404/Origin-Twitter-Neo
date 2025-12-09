@@ -18,14 +18,14 @@ jobs:
         with:
           python-version: "3.9"
 
-     # 1. リポジトリ名を修正（GitHub Actionsワークフロー内）
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
+          # monsivamonリポジトリから最新リリースタグを取得
           monsivamon_TAG=$(curl -s https://api.github.com/repos/monsivamon/twitter-apk/releases/latest | jq -r .tag_name)
           echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
           
-          # リポジトリ名を 'Origin-Twitter-Neo' に修正し、エラー処理を追加
+          # 修正: 正しいリポジトリ名 'YuzuMikan404/Origin-Twitter-Neo' を使用
           YuzuMikan404_response=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest)
           if echo "$YuzuMikan404_response" | jq -e '.tag_name' >/dev/null 2>&1; then
             YuzuMikan404_TAG=$(echo "$YuzuMikan404_response" | jq -r .tag_name)
@@ -35,11 +35,15 @@ jobs:
             echo "ℹ️  No existing release found or API error."
             echo "YuzuMikan404_TAG=" >> $GITHUB_ENV
           fi
-          
+
       - name: Check if releases match
         id: check_releases
         run: |
-          if [ "${{ env.monsivamon_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
+          # YuzuMikan404_TAGが空の場合は常に処理を続行
+          if [ -z "${{ env.YuzuMikan404_TAG }}" ]; then
+            echo "No existing release found in YuzuMikan404 repository. Proceeding with download and processing."
+            echo "SKIP=false" >> $GITHUB_ENV
+          elif [ "${{ env.monsivamon_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "Releases match. Skipping download and processing."
             echo "SKIP=true" >> $GITHUB_ENV
           else
@@ -80,14 +84,11 @@ jobs:
         if: ${{ env.SKIP == 'false' }}
         run: |
           echo "=== Apktoolをダウンロード・インストールします (公式スクリプト使用) ==="
-          # 公式インストールスクリプトとJARファイルをダウンロード
           wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
           wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar -O /tmp/apktool.jar
-          # システムパスの通った場所に移動し、実行権限を付与
           sudo mv /tmp/apktool /usr/local/bin/
           sudo mv /tmp/apktool.jar /usr/local/bin/
           sudo chmod +x /usr/local/bin/apktool
-          # インストールの確認
           echo "インストール完了。バージョンを確認:"
           apktool --version
        
@@ -190,8 +191,6 @@ jobs:
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         run: python patch_apk.py
 
-      # patch_apk.pyが全てのビルドと署名を行うので、ビルドステップは削除
-
       - name: Verify generated APKs
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         run: |
@@ -220,5 +219,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
-
-
