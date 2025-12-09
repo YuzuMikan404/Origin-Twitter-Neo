@@ -63,24 +63,50 @@ jobs:
           echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
           echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH" >> $GITHUB_ENV
 
-      - name: Install apktool
+      - name: Install apktool (Fixed)
         if: ${{ env.SKIP == 'false' }}
         run: |
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.13.0/apktool_2.13.0.jar -O apktool.jar
-          sudo mv apktool.jar /usr/local/bin/
-          echo '#!/bin/bash' | sudo tee /usr/local/bin/apktool
-          echo 'java -jar /usr/local/bin/apktool.jar "$@"' | sudo tee -a /usr/local/bin/apktool
-          sudo chmod +x /usr/local/bin/apktool /usr/local/bin/apktool.jar
-          echo "Installed apktool version:"
-          java -jar /usr/local/bin/apktool.jar --version
+          echo "=== Installing apktool ==="
+          # 1. 必要なJavaをインストール
+          sudo apt-get update && sudo apt-get install -y openjdk-17-jdk
+          
+          # 2. 作業ディレクトリにapktoolをダウンロード & インストール（絶対パスを明確に）
+          APKTOOL_JAR_PATH="$HOME/apktool.jar"
+          APKTOOL_WRAPPER_PATH="$HOME/apktool"
+          
+          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.13.0/apktool_2.13.0.jar -O "$APKTOOL_JAR_PATH"
+          
+          # 3. ラッパースクリプトを作成 (相対パスではなく絶対パスを使う)
+          cat > "$APKTOOL_WRAPPER_PATH" << 'EOF'
+          #!/bin/bash
+          exec java -jar "$HOME/apktool.jar" "$@"
+          EOF
+          
+          chmod +x "$APKTOOL_WRAPPER_PATH" "$APKTOOL_JAR_PATH"
+          
+          # 4. ラッパースクリプトをPATHが通った場所に移動
+          sudo mv "$APKTOOL_WRAPPER_PATH" /usr/local/bin/
+          sudo mv "$APKTOOL_JAR_PATH" /usr/local/bin/
+          
+          # 5. パスを確認し、グローバルなPATH環境変数に追加
+          echo "/usr/local/bin/apktool のインストールを確認:"
+          ls -la /usr/local/bin/apktool*
+          
+          # 現在のセッションと以降のステップのため、PATHを更新
+          echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
+          
+          echo "=== インストール完了、バージョンチェック ==="
+          /usr/local/bin/apktool --version
 
       - name: Print tool versions
         if: ${{ env.SKIP == 'false' }}
         run: |
           echo "Java version:"
           java -version
-          echo "apktool version:"
-          java -jar /usr/local/bin/apktool.jar --version
+          echo "apktool version (full path):"
+          /usr/local/bin/apktool --version || echo "Failed to run /usr/local/bin/apktool"
+          echo "apktool version (via PATH):"
+          apktool --version || echo "'apktool' command not found in PATH"
           echo "aapt2 version:"
           $HOME/android-sdk/build-tools/34.0.0/aapt2 version
 
@@ -157,7 +183,7 @@ jobs:
           # If we get here, all attempts failed
           echo "❌ ERROR: All download attempts failed after $MAX_RETRIES retries."
           echo "Possible issues:"
-          echo "1. SAS Token in URL may have expired [citation:2][citation:6]"
+          echo "1. SAS Token in URL may have expired "
           echo "2. Network connectivity problem"
           echo "3. Release file may not exist at the expected URL"
           echo "Setting status to failed..."
