@@ -23,7 +23,7 @@ jobs:
         run: |
           monsivamon_TAG=$(curl -s https://api.github.com/repos/monsivamon/twitter-apk/releases/latest | jq -r .tag_name)
           echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
-          YuzuMikan404_TAG=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter/releases/latest | jq -r .tag_name)
+          YuzuMikan404_TAG=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest | jq -r .tag_name)
           echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
 
       - name: Check if releases match
@@ -210,3 +210,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
