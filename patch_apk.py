@@ -27,30 +27,44 @@ THEME_COLORS = {
 }
 
 def get_apktool_path():
-    """apktoolの実行パスを取得する"""
-    # まずはapktoolコマンドを試す
-    try:
-        result = subprocess.run(['apktool', '--version'], 
-                              capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            print(f"apktool found via command: {result.stdout.strip()}")
-            return 'apktool'
-    except FileNotFoundError:
-        pass
+    """apktoolの実行パスを取得する。確実に動作する方法を優先する。"""
+    possible_paths = []
     
-    # apktoolコマンドがない場合は直接jarを実行
-    jar_paths = [
-        '/usr/local/bin/apktool.jar',
-        '/tmp/apktool.jar',
-        './apktool.jar'
-    ]
+    # 方法 1: 絶対パスで直接指定（ワークフローでインストールした場所）
+    possible_paths.append('/usr/local/bin/apktool')
+    possible_paths.append(['java', '-jar', '/usr/local/bin/apktool.jar'])
     
-    for jar_path in jar_paths:
-        if os.path.exists(jar_path):
-            print(f"Found apktool jar at: {jar_path}")
-            return ['java', '-jar', jar_path]
+    # 方法 2: 環境変数PATHから探す
+    import shutil
+    path_from_env = shutil.which('apktool')
+    if path_from_env:
+        possible_paths.append(path_from_env)
     
-    # どちらも見つからない
+    # 方法 3: 相対パスやその他の一般的な場所
+    possible_paths.append('apktool')
+    possible_paths.append('./apktool')
+    possible_paths.append('/usr/bin/apktool')
+    
+    # 各パスをテスト
+    for path_spec in possible_paths:
+        cmd = []
+        if isinstance(path_spec, list):
+            cmd = path_spec + ['--version']
+        else:
+            cmd = [path_spec, '--version']
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
+            if result.returncode == 0:
+                print(f"✅ apktool found: {' '.join(cmd)} -> {result.stdout.strip()}")
+                return path_spec  # 最初に見つかった有効なパスを返す
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            continue  # このパスは無効、次を試す
+    
+    # どれもダメな場合
+    print("❌ Error: Could not find a working apktool path after checking:")
+    for path_spec in possible_paths:
+        print(f"  - {path_spec}")
     return None
 
 def check_apktool():
@@ -84,8 +98,13 @@ def check_apktool():
         print(f"Error checking apktool: {e}")
         return False
 
-# 実行時にapktoolパスを取得する
+print("=== Initializing patch_apk.py ===")
 APK_TOOL = get_apktool_path()
+if APK_TOOL is None:
+    print("FATAL: apktool is not available. The workflow installation step may have failed.")
+    sys.exit(1)
+else:
+    print(f"Using apktool command: {APK_TOOL}")
 
 def main():
     # apktoolのチェック
