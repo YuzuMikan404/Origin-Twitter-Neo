@@ -3,7 +3,7 @@ import re
 import requests
 
 
-GITHUB_REPO = "monefiera/Origin-Twitter" 
+GITHUB_REPO = "YuzuMikan404/Origin-Twitter" 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") 
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 APK_DIR = "patched_apks"
