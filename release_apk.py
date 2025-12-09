@@ -5,7 +5,7 @@ import re
 import requests
 import sys
 
-GITHUB_REPO = "YuzuMikan404/Origin-Twitter" 
+GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo" 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") 
 if not GITHUB_TOKEN:
     print("Error: GITHUB_TOKEN environment variable is not set.")
