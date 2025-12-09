@@ -67,16 +67,14 @@ jobs:
         if: ${{ env.SKIP == 'false' }}
         run: |
           echo "=== Apktoolをダウンロード・インストールします (公式スクリプト使用) ==="
-  # 公式インストールスクリプトとJARファイルをダウンロード
+          # 公式インストールスクリプトとJARファイルをダウンロード
           wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
           wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar -O /tmp/apktool.jar
-    
-    # システムパスの通った場所に移動し、実行権限を付与
+          # システムパスの通った場所に移動し、実行権限を付与
           sudo mv /tmp/apktool /usr/local/bin/
           sudo mv /tmp/apktool.jar /usr/local/bin/
           sudo chmod +x /usr/local/bin/apktool
-    
-    # インストールの確認
+          # インストールの確認
           echo "インストール完了。バージョンを確認:"
           apktool --version
        
@@ -307,4 +305,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
 
