@@ -6,7 +6,7 @@ import requests
 import sys
 import glob
 
-GITHUB_REPO = "YuzuMikan404/Origin-Twitter"  # リポジトリ名を修正
+GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo"  # リポジトリ名を修正
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") 
 if not GITHUB_TOKEN:
     print("Error: GITHUB_TOKEN environment variable is not set.")
