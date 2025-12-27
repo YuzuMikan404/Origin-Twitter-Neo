@@ -18,6 +18,19 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Setup Signing Key
+        if: ${{ env.SKIP == 'false' }}
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > origin-twitter.keystore
+
+      - name: Run Patch APK script
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+        env:
+          STOREPASS: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEYPASS: ${{ secrets.KEY_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+        run: python patch_apk.py
+        
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
@@ -219,3 +232,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
