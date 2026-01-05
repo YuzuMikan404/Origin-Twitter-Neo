@@ -67,7 +67,7 @@ def create_github_release(version, release_id):
     
     # 2. 新規リリース作成
     # 修正点: 詳細なリリース本文を使用
-    body = f"""Auto-generated release: Origin Twitter version {version}-release.{release_id}
+    body = f"""自動リリース: Origin Twitter Neo version {version}-release.{release_id}
 
 ## Available Color Themes
 - Blue
