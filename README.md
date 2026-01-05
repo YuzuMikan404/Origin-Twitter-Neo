@@ -4,10 +4,10 @@
 ![GitHub Issues](https://img.shields.io/github/issues/YuzuMikan404/Origin-Twitter-Neo?style=for-the-badge&logo=github)
 
 ## 概要
-**Origin-Twitter-Neo**は、[monefiera](https://github.com/monefiera)さんの[Origin-Twitter](https://github.com/monefiera/Origin-Twitter)をベースに、参照元をpiko/twitter-apkからmonsivamon/twitter-apkhttps://github.com/monsivamon/twitter-apk/releasesに更新して自動ビルドするようにした自分用ビルドリポジトリです。
+**Origin-Twitter-Neo**は、[monefiera](https://github.com/monefiera)さんの[Origin-Twitter](https://github.com/monefiera/Origin-Twitter)をベースに、参照元を更新して自動ビルドするようにした自分用ビルドリポジトリです。
 
-参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を変更してビルドしています。
-プログラミング初心者が運用しているため、不具合が起こる可能性がありますが、**自己責任**にてご使用ください。
+参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を[piko/twitter-apk](https://github.com/crimera/twitter-apk/releases)から[monsivamon/twitter-apk](https://github.oom/monsivamon/twitter-apk/releases)にに変更してビルドしています。
+**自己責任**にてご使用ください。
 
 ## 📢 アナウンス
 - **ログイン不具合の解決策 (2026/01/05更新)**
