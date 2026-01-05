@@ -14,7 +14,7 @@
 - **署名の変更について (2025/12/27更新)**
   署名がされていない不具合を修正しました。これに伴い署名キーが変更されたため、以前のバージョンからは上書きアップデートができない場合があります。その際は一度アンインストールしてから再インストールしてください。それに伴い、これ以前のリリースは削除しています。これ以降、署名は変更しません。
 - **Blueskyでのご紹介について**
-  [monefiera](https://github.com/monefiera)さんがご自身のBlueskyでこのリポジトリを紹介してくださっていました。勝手にフォークして作成したにも関わらず、ありがとうございます！🙇🏻
+  monefieraさんがご自身のBlueskyでこのリポジトリを紹介してくださっていました。勝手にフォークして作成したにも関わらず、ありがとうございます！🙇🏻
   [該当ポストはこちら](https://bsky.app/profile/forsaken-love02.bsky.social/post/3m7nixn7t4k2a)
 
 ## 📥 ダウンロード
@@ -22,7 +22,7 @@
 
 [<img src="badge_obtainium.png" alt="Get it on Obtainium" height="45">](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.twitter.android%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FYuzuMikan404%2FOrigin-Twitter-Neo%22%2C%22author%22%3A%22YuzuMikan404%22%2C%22name%22%3A%22Origin%20Twitter%20Neo%22%2C%22preferredApkIndex%22%3A1%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22dontSortReleasesList%5C%22%3Afalse%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Afalse%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22appName%5C%22%3A%5C%22Origin%20Twitter%20Neo%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22Colorful%20mod%20Twitter%20by%20YuzuMikan404%20%28Neo%20build%29%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%7D%22%2C%22overrideSource%22%3Anull%7D)
 
-または [Releases](https://github.com/YuzuMikan404/Origin-Twitter-Neo/releases) ページから直接APKをダウンロードしてください。
+または [リリース](https://github.com/YuzuMikan404/Origin-Twitter-Neo/releases) ページから直接APKをダウンロードしてください。
 
 ## 🎨 カラーバリエーション
 お好みに合わせて、以下の10色から選べます。
@@ -46,10 +46,10 @@
 | ☁ **Monotone** | `#808080` | グレー基調 |
 | 🩷 **MateChan Pink** | `#ffadc0` | 淡いピンク |
 
-## 💐 Credits
+## 💐 クレジット
 - **[crimera](https://github.com/crimera)**: Base Mod (Piko) Developer
 - **[monefiera](https://github.com/monefiera)**: Original "Origin Twitter" Developer
 - **[kitadai31](https://github.com/kitadai31)**: Language patch implementation
 - **[X Corp.](https://twitter.com)**: Original App Developer
 
-Based on [Piko](https://github.com/crimera/piko)
+Based on [Piko Patches](https://github.com/crimera/piko)
