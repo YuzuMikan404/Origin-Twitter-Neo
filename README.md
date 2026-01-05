@@ -1,15 +1,15 @@
 # Origin-Twitter-Neo
 ## 概要
 
-もねふぃえさんのOrigin-Twitterの参照元であるcrimeraさんのapkの更新が止まってたので、参照元を変えて自動ビルドするようにした、自分用ビルドリポジトリです！
-プログラミング初心者なので、定期的になにか不都合が起こるかもしれませんが自己責任にてご使用ください。
+もねふぃえさんのOrigin-Twitterの参照元であるcrimeraさんのapkの更新が止まってたので、参照元を変えて自動ビルドするようにした、自分用ビルドリポジトリです！<br>
+プログラミング初心者なので、定期的になにか不都合が起こるかもしれませんが自己責任にてご使用ください。<br>
 
 ## 📢アナウンス
 - 署名がされていない不具合を見つけたため、2025/12/27に署名をするようになりました！それに伴い、混乱を避けるため以前のリリースを削除していますので、ご了承ください。
 - そもそものパッチの影響で、ログインできない不具合があります。解決策など最新の情報は、[こちらをご覧ください](https://github.com/crimera/piko/issues/714) 私の環境ではログインできてないです。。。
+- 全然Blueskyやってないので知らなかったのですが、もねふぃえさんがこのリポジトリ紹介してくださってました。勝手に作って申し訳ないです🙇🏻 https://bsky.app/profile/forsaken-love02.bsky.social/post/3m7nixn7t4k2a
 
 以下、元リポジトリからそのままフォークした情報です。。
-
 [<img src="badge_obtainium.png" alt="Get it on Obtainium" height="45">](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.twitter.android%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fmonefiera%2FOrigin-Twitter%22%2C%22author%22%3A%22monefiera%22%2C%22name%22%3A%22Twitter%22%2C%22preferredApkIndex%22%3A1%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3Afalse%2C%5C%22fallbackToOlderReleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22filterReleaseNotesByRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22verifyLatestTag%5C%22%3Afalse%2C%5C%22dontSortReleasesList%5C%22%3Afalse%2C%5C%22useLatestAssetDateAsReleaseDate%5C%22%3Afalse%2C%5C%22releaseTitleAsVersion%5C%22%3Afalse%2C%5C%22trackOnly%5C%22%3Afalse%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22matchGroupToUse%5C%22%3A%5C%22%5C%22%2C%5C%22versionDetection%5C%22%3Afalse%2C%5C%22releaseDateAsVersion%5C%22%3Afalse%2C%5C%22useVersionCodeAsOSVersion%5C%22%3Afalse%2C%5C%22apkFilterRegEx%5C%22%3A%5C%22%5C%22%2C%5C%22invertAPKFilter%5C%22%3Afalse%2C%5C%22autoApkFilterByArch%5C%22%3Atrue%2C%5C%22appName%5C%22%3A%5C%22Origin%20Twitter%5C%22%2C%5C%22shizukuPretendToBeGooglePlay%5C%22%3Afalse%2C%5C%22allowInsecure%5C%22%3Afalse%2C%5C%22exemptFromBackgroundUpdates%5C%22%3Afalse%2C%5C%22skipUpdateNotifications%5C%22%3Afalse%2C%5C%22about%5C%22%3A%5C%22Colorful%20mod%20Twitter%20by%20MONE%20FIERA%5C%22%2C%5C%22refreshBeforeDownload%5C%22%3Afalse%7D%22%2C%22overrideSource%22%3Anull%7D)<br>
 ![GitHub Downloads](https://img.shields.io/github/downloads/monefiera/Origin-Twitter/total?color=green&style=for-the-badge&logo=github)
 ![GitHub Issues](https://img.shields.io/github/issues/monefiera/Origin-Twitter?style=for-the-badge&logo=github)
