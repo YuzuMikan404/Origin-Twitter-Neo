@@ -127,7 +127,7 @@ def main():
             recompile_apk(decompiled_dir, unsigned_apk)
             
             # 署名 (apksignerを使用)
-            final_apk_name = f"Origin-Twitter.{color_name}.v{clean_version}-release.{release_id}.apk"
+            final_apk_name = f"Origin-Twitter-Neo.{color_name}.v{clean_version}-release.{release_id}.apk"
             final_apk_path = os.path.join(OUTPUT_DIR, final_apk_name)
             
             sign_apk_v2(unsigned_apk, final_apk_path)
@@ -337,3 +337,4 @@ def sign_apk_v2(unsigned_apk_path, signed_apk_path):
 
 if __name__ == "__main__":
     main()
+
