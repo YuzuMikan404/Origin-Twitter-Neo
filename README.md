@@ -52,8 +52,8 @@
 ## 💐 クレジット
 - **[crimera](https://github.com/crimera)**: Base Patches (Piko) Developer
 - **[monefiera](https://github.com/monefiera)**: Original "Origin Twitter" Developer
-- **[Twitter, Inc.](https://twitter.com)**: Original App Developer
-Based on [Piko Patches](https://github.com/crimera/piko)<br>
+- **[Twitter, Inc.](https://twitter.com)**: Original App Developer<br>
+Based on [Piko Patches](https://github.com/crimera/piko)
 
 ### 法的免責事項および著作権に関する表記
 
