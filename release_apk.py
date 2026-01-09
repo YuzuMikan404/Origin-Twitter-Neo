@@ -17,38 +17,18 @@ GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 APK_DIR = "patched_apks"
 
 def extract_version_from_downloaded_apk():
-    """ダウンロードしたAPKのファイル名から正確なバージョンを抽出"""
+    """ダウンロードしたAPKのタグを抽出"""
     print("Looking for downloaded APK file...")
     
-    # 修正点: 単純な置換ではなく、正規表現で正確にバージョンを抽出
     monsivamon_tag = os.getenv('monsivamon_TAG')
     if not monsivamon_tag:
         print("Error: monsivamon_TAG is not set.")
         return None, None
-    
-    print(f"Raw monsivamon_TAG from env: {monsivamon_tag}")
-    
-    # 例: "11.46.0-release.0" から "11.46.0" と "0" を抽出
-    version_pattern = r'(\d+\.\d+\.\d+)-release\.(\d+)'
-    match = re.match(version_pattern, monsivamon_tag)
-    
-    if match:
-        version = match.group(1)  # "11.46.0"
-        release_id = match.group(2)  # "0"
-        print(f"✅ Parsed version: {version}, release_id: {release_id}")
-        return version, release_id
-    else:
-        # フォールバック: 環境変数から直接抽出を試みる
-        clean_version = monsivamon_tag.split('-release')[0]
-        version = clean_version
-        release_id = "0"
-        print(f"⚠️  Using fallback version: {version}, release_id: {release_id}")
-        return version, release_id
 
 def create_github_release(version, release_id):
     """GitHubリリースを作成"""
     # 修正点: 正しいフォーマットのタグ名を作成
-    tag_name = f"{version}-release.{release_id}"
+    tag_name = f"v{monsivamon_tag}"
     print(f"Creating GitHub release with tag: {tag_name}")
     
     headers = {
@@ -67,23 +47,7 @@ def create_github_release(version, release_id):
     
     # 2. 新規リリース作成
     # 修正点: 詳細なリリース本文を使用
-    body = f"""自動リリース: Origin Twitter Neo version {version}-release.{release_id}
-
-## Available Color Themes
-- Blue
-- Gold
-- Red
-- Purple
-- Orange
-- Green
-- Crimsonate
-- Lazurite
-- Monotone
-- MateChan
-
-## Notes
-- All color variants use the same signature for easy switching
-- Based on monsivamon's Piko Twitter mod
+    body = f"""Auto Release: Origin Twitter Neo v{monsivamon_tag}
 """
     
     data = {
