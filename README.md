@@ -9,8 +9,11 @@
 **自己責任**にてご使用ください。
 
 ## 📢 アナウンス
+- **参照元リポジトリ変更のお知らせ（2026/01/10更新）**
+  参照元リポジトリを[monsivamon/twitter-apk](https://github.com/monsivamon/twitter-apk/releases) にしていましたが、[v11.53.0-release.0](https://github.com/YuzuMikan404/Origin-Twitter-Neo/releases/tag/11.53.0-release.0)にて参照元リポジトリの不具合なのかクラッシュするAPKを参照してしまいましたので、[lluni/twitter-apk](https://github.com/lluni/twitter-apk)にに変更してビルドしています。
 - **ログイン不具合の解決策 (2026/01/05更新)**
-  元パッチの影響でログインできない不具合がありましたが、応急的な解決策が判明しました。[こちらの手順](https://github.com/crimera/piko/issues/714#issuecomment-3706542446)を実施することでログインができるようになるかもしれません。私の環境ではこの方法でログインできました。
+  元パッチの影響でログインできない不具合がありましたが、応急的な解決策が判明しました。[こちらの手順](https://github.com/crimera/piko/issues/714#issuecomment-3706542446)を実施することでログインができるようになるかもしれません。私の環境ではこの方法でログインできました。<br>
+  また、ADBにてGoogle Playからインストールしたと見せかけることにより、ログインができるという情報もあります。Obtainiumの設定からも偽装することができます。
 - **署名の変更について (2025/12/27更新)**
   署名がされていない不具合を修正しました。これに伴い署名キーが変更されたため、以前のバージョンからは上書きアップデートができない場合があります。その際は一度アンインストールしてから再インストールしてください。それに伴い、これ以前のリリースは削除しています。これ以降、署名は変更しません。
 - **Blueskyでのご紹介について**
@@ -47,9 +50,31 @@
 | 🩷 **MateChan Pink** | `#ffadc0` | 淡いピンク |
 
 ## 💐 クレジット
-- **[crimera](https://github.com/crimera)**: Base Mod (Piko) Developer
+- **[crimera](https://github.com/crimera)**: Base Patches (Piko) Developer
 - **[monefiera](https://github.com/monefiera)**: Original "Origin Twitter" Developer
-- **[kitadai31](https://github.com/kitadai31)**: Language patch implementation
-- **[X Corp.](https://twitter.com)**: Original App Developer
-
+- **[Twitter, Inc.](https://twitter.com)**: Original App Developer
 Based on [Piko Patches](https://github.com/crimera/piko)
+
+### 法的免責事項および著作権に関する表記
+
+本ソフトウェア（以下「本プロジェクト」）は、技術的な研究および教育を目的として作成された非公式の成果物です。本プロジェクトの開発者は、X Corp.（旧Twitter, Inc.）およびその関連企業といかなる提携関係にもなく、また公式に認可されたものではありません。
+
+本プロジェクトにおいて参照、利用、または表示される「Twitter」、「X」、および関連するロゴ、名称、商標、サービスマーク等の知的財産権は、すべてX Corp.またはそれぞれの権利所有者に帰属します。
+
+本プロジェクトは、著作権法および関連法規の侵害を意図したものではありません。本プロジェクトの機能およびコードは、公正な慣行（Fair Use）の範囲内での利用を想定しており、オリジナルサービスの市場価値を毀損すること、または権利者の利益を不当に害することを目的としていません。
+
+権利所有者からの要請があった場合、または本プロジェクトが規約違反であると判断された場合、開発者は速やかに該当するコンテンツの削除、またはプロジェクトの公開停止措置を講じます。
+
+本プロジェクトの使用によって生じたいかなる損害（アカウントの凍結、データ損失、法的措置等を含むがこれらに限定されない）について、開発者は一切の責任を負いません。利用者は自身の責任において本プロジェクトを使用するものとします。
+
+### Legal Disclaimer and Copyright Notice
+
+This software (hereinafter referred to as "this Project") is an unofficial derivative work developed strictly for educational and technical research purposes. The developer of this Project is not affiliated with, endorsed by, or associated with X Corp. (formerly Twitter, Inc.) or any of its subsidiaries.
+
+All trademarks, logos, service marks, and trade names of "Twitter," "X," and related intellectual property referenced, used, or displayed in this Project remain the sole property of X Corp. or their respective owners.
+
+This Project is NOT intended to infringe upon any copyright laws or related regulations. The code and functionality provided herein are intended for use within the bounds of fair use and do not aim to diminish the market value of the original service or unfairly prejudice the interests of the rights holders.
+
+In the event of a request from the rights holder, or if this Project is deemed to violate any terms of service, the developer agrees to promptly remove the offending content or cease publication of the Project.
+
+The developer assumes no liability for any damages (including, but not limited to, account suspension, data loss, or legal action) arising from the use of this Project. Users agree to use this Project at their own risk.
