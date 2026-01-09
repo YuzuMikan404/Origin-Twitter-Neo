@@ -5,7 +5,7 @@
 
 ## 概要
 **Origin Twitter Neo**は、[monefiera](https://github.com/monefiera)さんの[Origin-Twitter](https://github.com/monefiera/Origin-Twitter)をベースに、参照元を更新して自動ビルドするようにした自分用ビルドリポジトリです。
-参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を[piko/twitter-apk](https://github.com/crimera/twitter-apk/releases)から[monsivamon/twitter-apk](https://github.com/monsivamon/twitter-apk/releases)にに変更してビルドしています。
+参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を[piko/twitter-apk](https://github.com/crimera/twitter-apk/releases)から[lluni/twitter-apk](https://github.com/lluni/twitter-apk)にに変更してビルドしています。
 **自己責任**にてご使用ください。
 
 ## 📢 アナウンス
