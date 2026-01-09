@@ -28,7 +28,7 @@ def extract_version_from_downloaded_apk():
 def create_github_release(version, release_id):
     """GitHubリリースを作成"""
     # 修正点: 正しいフォーマットのタグ名を作成
-    tag_name = f"v{monsivamon_tag}"
+    tag_name = f"{monsivamon_tag}"
     print(f"Creating GitHub release with tag: {tag_name}")
     
     headers = {
