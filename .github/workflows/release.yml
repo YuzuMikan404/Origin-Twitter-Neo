@@ -42,7 +42,7 @@ jobs:
           if [ -z "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "No existing release found. Proceeding."
             echo "SKIP=false" >> $GITHUB_ENV
-          elif [ "${{ env.monsivamon_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
+          elif [ "\( {{ env.monsivamon_TAG }}" == " \){{ env.YuzuMikan404_TAG }}" ]; then
             echo "Releases match. Skipping."
             echo "SKIP=true" >> $GITHUB_ENV
           else
@@ -69,14 +69,20 @@ jobs:
           export ANDROID_HOME=$HOME/android-sdk
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          export PATH=$PATH  # 元のPATHを保持
           echo "PATH=$PATH" >> $GITHUB_ENV
           yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "build-tools;34.0.0"
 
-      - name: Install apktool
+      - name: Install latest Apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
+          # 最新バージョンを取得
+          APKTOOL_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r .tag_name)
+          echo "Installing Apktool version: $APKTOOL_VERSION"
+          
+          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/\( {APKTOOL_VERSION}/apktool_ \){APKTOOL_VERSION#v}.jar" -O /tmp/apktool.jar
           wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
-          wget -q https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar -O /tmp/apktool.jar
+          
           sudo mv /tmp/apktool /usr/local/bin/
           sudo mv /tmp/apktool.jar /usr/local/bin/
           sudo chmod +x /usr/local/bin/apktool
@@ -92,7 +98,7 @@ jobs:
         continue-on-error: true
         run: |
           set -e
-          DOWNLOAD_URL="https://github.com/lluni/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
+          DOWNLOAD_URL="https://github.com/lluni/twitter-apk/releases/download/\( {{ env.monsivamon_TAG }}/twitter-piko-v \){{ env.monsivamon_TAG }}.apk"
           OUTPUT_FILE="downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
           
           echo "Downloading from: $DOWNLOAD_URL"
@@ -105,6 +111,11 @@ jobs:
             exit 1
           fi
 
+      - name: Install APK Framework for Apktool
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+        run: |
+          apktool if downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk
+
       # --- 修正: キーストアの復元 ---
       - name: Setup Signing Key
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
@@ -112,20 +123,29 @@ jobs:
           echo "Decoding keystore from secrets..."
           echo "${{ secrets.SIGNING_KEY }}" | base64 -d > origin-twitter.keystore
 
-      # --- 修正: パッチ実行（Secretsを渡す） ---
+      # --- 修正: パッチ実行前に環境変数でフラグを設定（patch_apk.pyで--use-aapt1を使う場合） ---
       - name: Run Patch APK script
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
           STOREPASS: ${{ secrets.KEY_STORE_PASSWORD }}
           KEYPASS: ${{ secrets.KEY_PASSWORD }}
           ALIAS: ${{ secrets.ALIAS }}
+          USE_AAPT1: true  # patch_apk.py内でこのフラグをチェックしてapktool bに--use-aapt1を追加
         run: python patch_apk.py
+
+      - name: Fix webview.xml in decompiled directories
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+        run: |
+          # すべてのdecompiledディレクトリでwebview.xmlのID参照を修正
+          for dir in decompiled-twitter-*; do
+            if [ -d "$dir" ]; then
+              find "$dir/res/layout" -type f -name "webview.xml" -exec sed -i 's/+@id/@+id/g' {} \;
+              echo "Fixed webview.xml in $dir"
+            fi
+          done
 
       - name: Run Release APK script
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
-
-
-
