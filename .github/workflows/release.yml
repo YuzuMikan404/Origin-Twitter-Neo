@@ -76,18 +76,27 @@ jobs:
       - name: Install latest Apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
-          # 最新バージョンを取得
+          # 最新リリースタグを取得（v3.0.1 など）
           APKTOOL_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r .tag_name)
           echo "Installing Apktool version: $APKTOOL_VERSION"
-          
-          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/\( {APKTOOL_VERSION}/apktool_ \){APKTOOL_VERSION#v}.jar" -O /tmp/apktool.jar
-          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
-          
-          sudo mv /tmp/apktool /usr/local/bin/
-          sudo mv /tmp/apktool.jar /usr/local/bin/
-          sudo chmod +x /usr/local/bin/apktool
-          apktool --version
 
+          # jarファイル名は v3.0.1 → apktool_3.0.1.jar の形式
+          JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
+
+          # 正しいダウンロードURL
+          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/\( {APKTOOL_VERSION}/ \){JAR_NAME}" -O /tmp/apktool.jar
+
+          # Linux用ラッパースクリプト（wrapper）
+          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
+
+          # 移動 & 実行権限付与
+          sudo mv /tmp/apktool /usr/local/bin/apktool
+          sudo mv /tmp/apktool.jar /usr/local/bin/apktool.jar
+          sudo chmod +x /usr/local/bin/apktool
+
+          # バージョン確認（成功すればここで表示される）
+          apktool --version || echo "apktool command failed"
+          
       - name: Create downloads directory
         if: ${{ env.SKIP == 'false' }}
         run: mkdir -p downloads
@@ -149,3 +158,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
+
