@@ -78,7 +78,7 @@ jobs:
           
           JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
           
-          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/\( {APKTOOL_VERSION}/ \){JAR_NAME}" -O /tmp/apktool.jar
+          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/$APKTOOL_VERSION/$JAR_NAME" -O /tmp/apktool.jar
           
           wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
           
