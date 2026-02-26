@@ -3,8 +3,7 @@ name: Auto Patch & Release APK
 on:
   workflow_dispatch:
   schedule:
-  # UTCの15:00（日本時間0:00）に実行
-  - cron: '0 15 * * *'
+  - cron: '0 15 * * *'  # UTC 15:00 (日本時間 00:00)
 
 jobs:
   patch_and_release:
@@ -21,18 +20,16 @@ jobs:
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
-          # monsivamon(lluniに変更 変数名は変わっていません)リポジトリから最新リリースタグを取得
           monsivamon_TAG=$(curl -s https://api.github.com/repos/lluni/twitter-apk/releases/latest | jq -r .tag_name)
           echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
           
-          # YuzuMikan404リポジトリの最新タグを取得
           YuzuMikan404_response=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest)
           if echo "$YuzuMikan404_response" | jq -e '.tag_name' >/dev/null 2>&1; then
             YuzuMikan404_TAG=$(echo "$YuzuMikan404_response" | jq -r .tag_name)
             echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
             echo "✅ Found existing release tag: $YuzuMikan404_TAG"
           else
-            echo "ℹ️  No existing release found or API error."
+            echo "ℹ️ No existing release found or API error."
             echo "YuzuMikan404_TAG=" >> $GITHUB_ENV
           fi
 
@@ -69,34 +66,32 @@ jobs:
           export ANDROID_HOME=$HOME/android-sdk
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          export PATH=$PATH  # 元のPATHを保持
           echo "PATH=$PATH" >> $GITHUB_ENV
           yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "build-tools;34.0.0"
 
       - name: Install latest Apktool
         if: ${{ env.SKIP == 'false' }}
         run: |
-          # 最新リリースタグを取得（v3.0.1 など）
+          set -euo pipefail
           APKTOOL_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r .tag_name)
           echo "Installing Apktool version: $APKTOOL_VERSION"
-
-          # jarファイル名は v3.0.1 → apktool_3.0.1.jar の形式
-          JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
-
-          # 正しいダウンロードURL
-          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/\( {APKTOOL_VERSION}/ \){JAR_NAME}" -O /tmp/apktool.jar
-
-          # Linux用ラッパースクリプト（wrapper）
-          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
-
-          # 移動 & 実行権限付与
-          sudo mv /tmp/apktool /usr/local/bin/apktool
-          sudo mv /tmp/apktool.jar /usr/local/bin/apktool.jar
-          sudo chmod +x /usr/local/bin/apktool
-
-          # バージョン確認（成功すればここで表示される）
-          apktool --version || echo "apktool command failed"
           
+          JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
+          
+          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/\( {APKTOOL_VERSION}/ \){JAR_NAME}" -O /tmp/apktool.jar
+          
+          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
+          
+          sudo mv /tmp/apktool /usr/local/bin/
+          sudo mv /tmp/apktool.jar /usr/local/bin/
+          sudo chmod +x /usr/local/bin/apktool
+          
+          apktool --version || { echo "apktool command failed"; exit 1; }
+
+      - name: Set Java Heap Size for large APK
+        if: ${{ env.SKIP == 'false' }}
+        run: echo "JAVA_OPTS=-Xmx6g" >> $GITHUB_ENV
+
       - name: Create downloads directory
         if: ${{ env.SKIP == 'false' }}
         run: mkdir -p downloads
@@ -122,40 +117,24 @@ jobs:
 
       - name: Install APK Framework for Apktool
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
-        run: |
-          apktool if downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk
+        run: apktool if downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk
 
-      # --- 修正: キーストアの復元 ---
       - name: Setup Signing Key
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         run: |
           echo "Decoding keystore from secrets..."
           echo "${{ secrets.SIGNING_KEY }}" | base64 -d > origin-twitter.keystore
 
-      # --- 修正: パッチ実行前に環境変数でフラグを設定（patch_apk.pyで--use-aapt1を使う場合） ---
       - name: Run Patch APK script
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
           STOREPASS: ${{ secrets.KEY_STORE_PASSWORD }}
           KEYPASS: ${{ secrets.KEY_PASSWORD }}
           ALIAS: ${{ secrets.ALIAS }}
-          USE_AAPT1: true  # patch_apk.py内でこのフラグをチェックしてapktool bに--use-aapt1を追加
         run: python patch_apk.py
-
-      - name: Fix webview.xml in decompiled directories
-        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
-        run: |
-          # すべてのdecompiledディレクトリでwebview.xmlのID参照を修正
-          for dir in decompiled-twitter-*; do
-            if [ -d "$dir" ]; then
-              find "$dir/res/layout" -type f -name "webview.xml" -exec sed -i 's/+@id/@+id/g' {} \;
-              echo "Fixed webview.xml in $dir"
-            fi
-          done
 
       - name: Run Release APK script
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
         run: python release_apk.py
-
