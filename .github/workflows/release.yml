@@ -1,29 +1,13 @@
-name: Patch and Release
+name: Auto Patch & Release APK
 
 on:
   workflow_dispatch:
-    inputs:
-      monsivamon_TAG:
-        description: "Enter the monsivamon_TAG"
-        required: true
-        default: "11.68.0-release.0"
-      YuzuMikan404_TAG:
-        description: "Enter the YuzuMikan404_TAG"
-        required: true
-        default: "11.68.0-release.0"
-      SKIP:
-        description: "Skip the patching process? (true/false)"
-        required: false
-        default: "false"
+  schedule:
+  - cron: '0 15 * * *'  # UTC 15:00 (日本時間 00:00)
 
 jobs:
   patch_and_release:
     runs-on: ubuntu-latest
-    env:
-      monsivamon_TAG: ${{ inputs.monsivamon_TAG }}
-      YuzuMikan404_TAG: ${{ inputs.YuzuMikan404_TAG }}
-      SKIP: ${{ inputs.SKIP }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -33,42 +17,97 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Get latest release info from GitHub
+        id: get_release_piko_and_origin
+        run: |
+          monsivamon_TAG=$(curl -s https://api.github.com/repos/lluni/twitter-apk/releases/latest | jq -r .tag_name)
+          echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
+          
+          YuzuMikan404_response=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest)
+          if echo "$YuzuMikan404_response" | jq -e '.tag_name' >/dev/null 2>&1; then
+            YuzuMikan404_TAG=$(echo "$YuzuMikan404_response" | jq -r .tag_name)
+            echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
+            echo "✅ Found existing release tag: $YuzuMikan404_TAG"
+          else
+            echo "ℹ️ No existing release found or API error."
+            echo "YuzuMikan404_TAG=" >> $GITHUB_ENV
+          fi
+
+      - name: Check if releases match
+        id: check_releases
+        run: |
+          if [ -z "${{ env.YuzuMikan404_TAG }}" ]; then
+            echo "No existing release found. Proceeding."
+            echo "SKIP=false" >> $GITHUB_ENV
+          elif [ "${{ env.monsivamon_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
+            echo "Releases match. Skipping."
+            echo "SKIP=true" >> $GITHUB_ENV
+          else
+            echo "Releases differ. Proceeding."
+            echo "SKIP=false" >> $GITHUB_ENV
+          fi
+
+      - name: Install requests and PyYAML
+        if: ${{ env.SKIP == 'false' }}
+        run: pip install requests PyYAML
+
       - name: Install dependencies
+        if: ${{ env.SKIP == 'false' }}
         run: |
-          pip install requests beautifulsoup4
+          sudo apt-get update && sudo apt-get install -y curl wget jq unzip openjdk-17-jdk
 
-      - name: Install apktool
+      - name: Install Android SDK & Build Tools
+        if: ${{ env.SKIP == 'false' }}
         run: |
-          wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_3.0.1.jar -O apktool.jar
-          echo "apktool installed: $(java -jar apktool.jar --version)"
-
-      - name: Install Android SDK
-        run: |
-          wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-          mkdir -p $ANDROID_HOME/cmdline-tools
-          unzip cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
-          mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "platforms;android-34"
+          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O sdk-tools.zip
+          unzip sdk-tools.zip
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          mv cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0" >> $GITHUB_PATH
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "build-tools;34.0.0"
 
-      - name: Install Java
+      - name: Install latest Apktool
+        if: ${{ env.SKIP == 'false' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk
-          export JAVA_OPTS="-Xmx6g"
+          set -euo pipefail
+          APKTOOL_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r .tag_name)
+          echo "Installing Apktool version: $APKTOOL_VERSION"
+          
+          JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
+          
+          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/$APKTOOL_VERSION/$JAR_NAME" -O /tmp/apktool.jar
+          
+          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
+          
+          sudo mv /tmp/apktool /usr/local/bin/
+          sudo mv /tmp/apktool.jar /usr/local/bin/
+          sudo chmod +x /usr/local/bin/apktool
+          
+          apktool --version || { echo "apktool command failed"; exit 1; }
+
+      - name: Set Java Heap Size for large APK
+        if: ${{ env.SKIP == 'false' }}
+        run: echo "JAVA_OPTS=-Xmx6g" >> $GITHUB_ENV
+
+      - name: Create downloads directory
+        if: ${{ env.SKIP == 'false' }}
+        run: mkdir -p downloads
 
       - name: Download APK file
+        if: ${{ env.SKIP == 'false' }}
+        id: download_apk
+        continue-on-error: true
         run: |
           set -e
-          mkdir -p downloads  # Ensure directory exists
-          DOWNLOAD_URL="https://github.com/lluni/twitter-apk/releases/download/$monsivamon_TAG/twitter-piko-v$monsivamon_TAG.apk"
-          OUTPUT_FILE="downloads/twitter-piko-v$monsivamon_TAG.apk"
-
+          DOWNLOAD_URL="https://github.com/lluni/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
+          OUTPUT_FILE="downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
+          
           echo "Downloading from: $DOWNLOAD_URL"
           curl -v -L -f "$DOWNLOAD_URL" -o "$OUTPUT_FILE"
-
+          
           if [ -s "$OUTPUT_FILE" ]; then
             echo "apk_downloaded=true" >> $GITHUB_ENV
           else
@@ -76,23 +115,26 @@ jobs:
             exit 1
           fi
 
-      - name: Patch APK
-        if: env.apk_downloaded == 'true' && env.SKIP == 'false'
-        run: |
-          java -jar apktool.jar d downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk -o patched
-          python patch.py
-          java -jar apktool.jar b patched -o patched.apk
+      - name: Install APK Framework for Apktool
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+        run: apktool if downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk
 
-      - name: Sign APK
-        if: env.apk_downloaded == 'true'
+      - name: Setup Signing Key
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         run: |
-          keytool -genkey -v -keystore my-release-key.keystore -keyalg RSA -keysize 2048 -validity 10000 -alias my-alias -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown" -storepass password -keypass password
-          apksigner sign --ks my-release-key.keystore --ks-pass pass:password --v1-signing-enabled --v2-signing-enabled patched.apk
+          echo "Decoding keystore from secrets..."
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > origin-twitter.keystore
 
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ env.YuzuMikan404_TAG }}
-          files: patched.apk
+      - name: Run Patch APK script
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STOREPASS: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEYPASS: ${{ secrets.KEY_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+        run: python patch_apk.py
+
+      - name: Run Release APK script
+        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
+        run: python release_apk.py
