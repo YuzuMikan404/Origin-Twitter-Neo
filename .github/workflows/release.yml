@@ -20,7 +20,7 @@ jobs:
       - name: Get latest release info from GitHub
         id: get_release_piko_and_origin
         run: |
-          monsivamon_TAG=$(curl -s https://api.github.com/repos/lluni/twitter-apk/releases/latest | jq -r .tag_name)
+          monsivamon_TAG=$(curl -s https://api.github.com/repos/crimera/twitter-apk/releases/latest | jq -r .tag_name)
           echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
           
           YuzuMikan404_response=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest)
@@ -102,7 +102,7 @@ jobs:
         continue-on-error: true
         run: |
           set -e
-          DOWNLOAD_URL="https://github.com/lluni/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
+          DOWNLOAD_URL="https://github.com/crimera/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
           OUTPUT_FILE="downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk"
           
           echo "Downloading from: $DOWNLOAD_URL"
