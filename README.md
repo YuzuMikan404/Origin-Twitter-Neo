@@ -3,6 +3,9 @@
 ![GitHub Downloads](https://img.shields.io/github/downloads/YuzuMikan404/Origin-Twitter-Neo/total?color=green&style=for-the-badge&logo=github)
 ![GitHub Issues](https://img.shields.io/github/stars/YuzuMikan404/Origin-Twitter-Neo?style=for-the-badge&logo=github)
 
+## 謝辞
+monefieraさんがリポジトリの更新を再開したのでアップストリームのリポジトリからAPKをダウンロードすることをお勧めします！
+
 ## 概要
 **Origin Twitter Neo**は、[monefiera](https://github.com/monefiera)さんの[Origin-Twitter](https://github.com/monefiera/Origin-Twitter)をベースに、参照元を更新して自動ビルドするようにした自分用ビルドリポジトリです。
 参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を[crimera/twitter-apk](https://github.com/crimera/twitter-apk/releases)から[lluni/twitter-apk](https://github.com/lluni/twitter-apk)に変更してビルドしています。
