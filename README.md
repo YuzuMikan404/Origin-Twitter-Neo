@@ -4,16 +4,16 @@
 ![GitHub Issues](https://img.shields.io/github/stars/YuzuMikan404/Origin-Twitter-Neo?style=for-the-badge&logo=github)
 
 ## 謝辞
-monefieraさんがリポジトリの更新を再開したのでアップストリームのリポジトリからAPKをダウンロードすることをお勧めします！
+monefieraさんがリポジトリの更新を再開したのでアップストリームのリポジトリからAPKをダウンロードすることをお勧めします！といっても更新し続けます、自分用ですが
 
 ## 概要
 **Origin Twitter Neo**は、[monefiera](https://github.com/monefiera)さんの[Origin-Twitter](https://github.com/monefiera/Origin-Twitter)をベースに、参照元を更新して自動ビルドするようにした自分用ビルドリポジトリです。
-参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を[crimera/twitter-apk](https://github.com/crimera/twitter-apk/releases)から[lluni/twitter-apk](https://github.com/lluni/twitter-apk)に変更してビルドしています。
+参照元であったcrimeraさんのAPK更新が停止していたため、独自に参照元を[crimera/twitter-apk](https://github.com/crimera/twitter-apk/releases)から[monsivamon/twitter-apk](https://github.com/monsivamon/twitter-apk)に変更してビルドしています。
 **自己責任**にてご使用ください。
 
 ## 📢 アナウンス
-- **参照元リポジトリ変更のお知らせ（2026/05/05更新）** <br>
-  参照元リポジトリを[lluni/twitter-apk](https://github.com/lluni/twitter-apk)に戻しました。
+- **参照元リポジトリ変更のお知らせ（2026/07/30更新）** <br>
+  参照元リポジトリを[monsivamon/twitter-apk](https://github.com/monsivamon/twitter-apk)に戻しました。
 - **ログイン不具合の解決策 (2026/01/05更新)** <br>
   元パッチの影響でログインできない不具合がありましたが、応急的な解決策が判明しました。[こちらの手順](https://github.com/crimera/piko/issues/714#issuecomment-3706542446)を実施することでログインができるようになるかもしれません。私の環境ではこの方法でログインできました。<br>
   詳しくは[Kdroidwinの日記の解説記事](https://kdroidwin.hatenablog.com/entry/2025/11/04/210359)を参考にやるとわかりやすいかもです。<br>
