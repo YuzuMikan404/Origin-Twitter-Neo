@@ -3,7 +3,7 @@ name: Auto Patch & Release APK
 on:
   workflow_dispatch:
   schedule:
-  - cron: '0 15 * * *'  # UTC 15:00 (日本時間 00:00)
+    - cron: '0 15 * * *'  # UTC 15:00 (日本時間 00:00)
 
 jobs:
   patch_and_release:
@@ -17,20 +17,84 @@ jobs:
         with:
           python-version: "3.9"
 
-      - name: Get latest release info from GitHub
+      - name: Get latest Piko release and APK info from GitHub
         id: get_release_piko_and_origin
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          monsivamon_TAG=$(curl -s https://api.github.com/repos/monsivamon/twitter-apk/releases/latest | jq -r .tag_name)
-          echo "monsivamon_TAG=${monsivamon_TAG}" >> $GITHUB_ENV
-          
-          YuzuMikan404_response=$(curl -s https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest)
+          set -euo pipefail
+
+          # /releases/latest は pre-release を除外するため使用しない。
+          # /releases から draft 以外を新しい順に確認し、
+          # 無印 twitter-piko APK を含む最初の Release を採用する。
+          PIKO_RELEASES=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/monsivamon/twitter-apk/releases?per_page=30")
+
+          PIKO_RELEASE=$(echo "$PIKO_RELEASES" | jq -c '
+            [
+              .[]
+              | select(.draft == false)
+              | . as $release
+              | [
+                  .assets[]?
+                  | select(
+                      (.name | test("^twitter-piko-v[0-9].*\\.apk$"))
+                      and ((.name | contains("material-you")) | not)
+                    )
+                ] as $assets
+              | select(($assets | length) > 0)
+              | {
+                  tag_name: $release.tag_name,
+                  prerelease: $release.prerelease,
+                  asset: $assets[0]
+                }
+            ][0]
+          ')
+
+          if [ -z "$PIKO_RELEASE" ] || [ "$PIKO_RELEASE" = "null" ]; then
+            echo "❌ No release containing a non-Material-You twitter-piko APK was found."
+            exit 1
+          fi
+
+          PIKO_RELEASE_TAG=$(echo "$PIKO_RELEASE" | jq -r '.tag_name')
+          PIKO_PRERELEASE=$(echo "$PIKO_RELEASE" | jq -r '.prerelease')
+          PIKO_ASSET_NAME=$(echo "$PIKO_RELEASE" | jq -r '.asset.name')
+          PIKO_ASSET_URL=$(echo "$PIKO_RELEASE" | jq -r '.asset.browser_download_url')
+
+          # 例:
+          #   asset: twitter-piko-v12.7.1-release.0.apk
+          #   monsivamon_TAG: 12.7.1-release.0
+          # patch_apk.py / release_apk.py はこの形式を前提としているため、
+          # Release tag (piko-v3.8.0 等) ではなく APK 側のバージョンを渡す。
+          monsivamon_TAG="${PIKO_ASSET_NAME#twitter-piko-v}"
+          monsivamon_TAG="${monsivamon_TAG%.apk}"
+
+          echo "PIKO_RELEASE_TAG=$PIKO_RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "PIKO_PRERELEASE=$PIKO_PRERELEASE" >> "$GITHUB_ENV"
+          echo "PIKO_ASSET_NAME=$PIKO_ASSET_NAME" >> "$GITHUB_ENV"
+          echo "PIKO_ASSET_URL=$PIKO_ASSET_URL" >> "$GITHUB_ENV"
+          echo "monsivamon_TAG=$monsivamon_TAG" >> "$GITHUB_ENV"
+
+          echo "✅ Upstream release: $PIKO_RELEASE_TAG (prerelease=$PIKO_PRERELEASE)"
+          echo "✅ Selected APK: $PIKO_ASSET_NAME"
+          echo "✅ APK version: $monsivamon_TAG"
+
+          YuzuMikan404_response=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases/latest || true)
+
           if echo "$YuzuMikan404_response" | jq -e '.tag_name' >/dev/null 2>&1; then
-            YuzuMikan404_TAG=$(echo "$YuzuMikan404_response" | jq -r .tag_name)
-            echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> $GITHUB_ENV
+            YuzuMikan404_TAG=$(echo "$YuzuMikan404_response" | jq -r '.tag_name')
+            echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> "$GITHUB_ENV"
             echo "✅ Found existing release tag: $YuzuMikan404_TAG"
           else
             echo "ℹ️ No existing release found or API error."
-            echo "YuzuMikan404_TAG=" >> $GITHUB_ENV
+            echo "YuzuMikan404_TAG=" >> "$GITHUB_ENV"
           fi
 
       - name: Check if releases match
@@ -38,13 +102,13 @@ jobs:
         run: |
           if [ -z "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "No existing release found. Proceeding."
-            echo "SKIP=false" >> $GITHUB_ENV
+            echo "SKIP=false" >> "$GITHUB_ENV"
           elif [ "${{ env.monsivamon_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "Releases match. Skipping."
-            echo "SKIP=true" >> $GITHUB_ENV
+            echo "SKIP=true" >> "$GITHUB_ENV"
           else
             echo "Releases differ. Proceeding."
-            echo "SKIP=false" >> $GITHUB_ENV
+            echo "SKIP=false" >> "$GITHUB_ENV"
           fi
 
       - name: Install requests and PyYAML
@@ -75,17 +139,17 @@ jobs:
           set -euo pipefail
           APKTOOL_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r .tag_name)
           echo "Installing Apktool version: $APKTOOL_VERSION"
-          
+
           JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
-          
+
           wget -q "https://github.com/iBotPeaches/Apktool/releases/download/$APKTOOL_VERSION/$JAR_NAME" -O /tmp/apktool.jar
-          
+
           wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
-          
+
           sudo mv /tmp/apktool /usr/local/bin/
           sudo mv /tmp/apktool.jar /usr/local/bin/
           sudo chmod +x /usr/local/bin/apktool
-          
+
           apktool --version || { echo "apktool command failed"; exit 1; }
 
       - name: Set Java Heap Size for large APK
@@ -99,25 +163,41 @@ jobs:
       - name: Download APK file
         if: ${{ env.SKIP == 'false' }}
         id: download_apk
-        continue-on-error: true
         run: |
-          set -e
-          DOWNLOAD_URL="https://github.com/monsivamon/twitter-apk/releases/download/${{ env.monsivamon_TAG }}/twitter-piko-.*.apk"
-          OUTPUT_FILE="downloads/twitter-piko-.*.apk"
-          
-          echo "Downloading from: $DOWNLOAD_URL"
-          curl -v -L -f "$DOWNLOAD_URL" -o "$OUTPUT_FILE"
-          
+          set -euo pipefail
+
+          if [ -z "${{ env.PIKO_ASSET_URL }}" ] || [ -z "${{ env.PIKO_ASSET_NAME }}" ]; then
+            echo "❌ PIKO_ASSET_URL or PIKO_ASSET_NAME is empty."
+            echo "apk_downloaded=false" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+          OUTPUT_FILE="downloads/${{ env.PIKO_ASSET_NAME }}"
+
+          echo "Downloading: ${{ env.PIKO_ASSET_NAME }}"
+          echo "From release: ${{ env.PIKO_RELEASE_TAG }}"
+          echo "URL: ${{ env.PIKO_ASSET_URL }}"
+
+          curl -fL --retry 3 --retry-delay 2 \
+            "${{ env.PIKO_ASSET_URL }}" \
+            -o "$OUTPUT_FILE"
+
           if [ -s "$OUTPUT_FILE" ]; then
-            echo "apk_downloaded=true" >> $GITHUB_ENV
+            echo "✅ Downloaded: $OUTPUT_FILE ($(wc -c < "$OUTPUT_FILE") bytes)"
+            echo "apk_downloaded=true" >> "$GITHUB_ENV"
           else
-            echo "apk_downloaded=false" >> $GITHUB_ENV
+            echo "❌ Downloaded APK is empty or missing."
+            echo "apk_downloaded=false" >> "$GITHUB_ENV"
             exit 1
           fi
 
       - name: Install APK Framework for Apktool
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
-        run: apktool if downloads/twitter-piko-v${{ env.monsivamon_TAG }}.apk
+        run: |
+          set -euo pipefail
+          APK_FILE="downloads/${{ env.PIKO_ASSET_NAME }}"
+          echo "Installing framework from: $APK_FILE"
+          apktool if "$APK_FILE"
 
       - name: Setup Signing Key
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
