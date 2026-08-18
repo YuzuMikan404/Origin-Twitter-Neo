@@ -43,7 +43,7 @@ def create_github_release(tag):
                 print(f"✅ Release {tag} already exists.")
                 return release["id"], release["upload_url"].split("{")[0]
 
-    body = f"Auto Release: Origin Twitter Neo v{tag} <br>Build from: https://github.com/lluni/twitter-apk/releases/tag/{tag}"
+    body = f"Auto Release: Origin Twitter Neo v{tag} <br>Build from: https://github.com/monsivamon/twitter-apk/releases/tag/{tag}"
 
     data = {
         "tag_name": tag,
