@@ -18,9 +18,15 @@ UPSTREAM_REPO = "monsivamon/twitter-apk"
 
 
 def get_release_tag():
-    tag = os.getenv("PIKO_RELEASE_TAG")
+    tag = os.getenv("RELEASE_TAG")
     if not tag:
-        print("❌ Error: PIKO_RELEASE_TAG is not set.")
+        apk_version = os.getenv("APK_VERSION", "")
+        piko_tag = os.getenv("PIKO_RELEASE_TAG", "")
+        piko_patch = piko_tag.removeprefix("piko-v") if piko_tag else ""
+        if apk_version and piko_patch:
+            tag = f"{apk_version}_{piko_patch}"
+    if not tag:
+        print("❌ Error: RELEASE_TAG is not set.")
         sys.exit(1)
     print(f"Using release tag: {tag}")
     return tag
@@ -33,8 +39,10 @@ def is_prerelease(tag=None):
     if value in ("false", "0", "no"):
         return False
 
-    tag = (tag or os.getenv("PIKO_RELEASE_TAG", "")).lower()
-    return any(marker in tag for marker in ("-dev.", "-dev-", "-beta", "-rc.", "-rc-", "-alpha"))
+    tag = (tag or os.getenv("RELEASE_TAG", "")).lower()
+    piko_tag = os.getenv("PIKO_RELEASE_TAG", "").lower()
+    combined = f"{tag} {piko_tag}"
+    return any(marker in combined for marker in ("-dev.", "-dev-", "-beta", "-rc.", "-rc-", "-alpha"))
 
 
 def sync_release_prerelease(release_id, prerelease, headers):
@@ -76,14 +84,18 @@ def create_github_release(tag):
                     sync_release_prerelease(release["id"], prerelease, headers)
                 return release["id"], release["upload_url"].split("{")[0]
 
+    piko_tag = os.getenv("PIKO_RELEASE_TAG", "")
     apk_version = os.getenv("APK_VERSION", "")
-    build_url = f"https://github.com/{UPSTREAM_REPO}/releases/tag/{tag}"
+    build_url = f"https://github.com/{UPSTREAM_REPO}/releases/tag/{piko_tag}"
     body = (
         f"Auto Release: Origin Twitter Neo {tag}<br>"
-        f"Build from: [{tag}]({build_url})"
+        f"Build from: [{piko_tag}]({build_url})"
     )
     if apk_version:
         body += f"<br>Twitter APK: v{apk_version}"
+    if piko_tag:
+        piko_patch = piko_tag.removeprefix("piko-v")
+        body += f"<br>Piko patch: v{piko_patch}"
     if prerelease:
         body += "<br><br>⚠️ This is a pre-release build based on an upstream pre-release."
 

@@ -68,18 +68,23 @@ jobs:
           #   PIKO_RELEASE_TAG: piko-v3.9.0-dev.9
           #   asset: twitter-piko-v12.17.0-release.0.apk
           #   APK_VERSION: 12.17.0-release.0
+          #   RELEASE_TAG: 12.17.0-release.0_3.9.0-dev.9
           APK_VERSION="${PIKO_ASSET_NAME#twitter-piko-v}"
           APK_VERSION="${APK_VERSION%.apk}"
+          PIKO_PATCH_VERSION="${PIKO_RELEASE_TAG#piko-v}"
+          RELEASE_TAG="${APK_VERSION}_${PIKO_PATCH_VERSION}"
 
           echo "PIKO_RELEASE_TAG=$PIKO_RELEASE_TAG" >> "$GITHUB_ENV"
           echo "PIKO_PRERELEASE=$PIKO_PRERELEASE" >> "$GITHUB_ENV"
           echo "PIKO_ASSET_NAME=$PIKO_ASSET_NAME" >> "$GITHUB_ENV"
           echo "PIKO_ASSET_URL=$PIKO_ASSET_URL" >> "$GITHUB_ENV"
           echo "APK_VERSION=$APK_VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
 
           echo "✅ Upstream release: $PIKO_RELEASE_TAG (prerelease=$PIKO_PRERELEASE)"
           echo "✅ Selected APK: $PIKO_ASSET_NAME"
           echo "✅ APK version: $APK_VERSION"
+          echo "✅ Release tag: $RELEASE_TAG"
 
           # /releases/latest は pre-release を除外するため使用しない
           ORIGIN_RELEASES=$(curl -fsSL \
@@ -104,7 +109,7 @@ jobs:
           if [ -z "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "No existing release found. Proceeding."
             echo "SKIP=false" >> "$GITHUB_ENV"
-          elif [ "${{ env.PIKO_RELEASE_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
+          elif [ "${{ env.RELEASE_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
             echo "Releases match. Skipping."
             echo "SKIP=true" >> "$GITHUB_ENV"
           else
@@ -219,6 +224,7 @@ jobs:
         if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
           PIKO_RELEASE_TAG: ${{ env.PIKO_RELEASE_TAG }}
           PIKO_PRERELEASE: ${{ env.PIKO_PRERELEASE }}
           APK_VERSION: ${{ env.APK_VERSION }}
