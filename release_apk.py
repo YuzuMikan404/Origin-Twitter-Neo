@@ -14,43 +14,85 @@ if not GITHUB_TOKEN:
 
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
 APK_DIR = "patched_apks"
+UPSTREAM_REPO = "monsivamon/twitter-apk"
 
-def get_tag():
-    tag = os.getenv("monsivamon_TAG")
+
+def get_release_tag():
+    tag = os.getenv("PIKO_RELEASE_TAG")
     if not tag:
-        print("❌ Error: monsivamon_TAG is not set.")
+        print("❌ Error: PIKO_RELEASE_TAG is not set.")
         sys.exit(1)
-    print(f"Using tag: {tag}")
+    print(f"Using release tag: {tag}")
     return tag
+
+
+def is_prerelease(tag=None):
+    value = os.getenv("PIKO_PRERELEASE", "").strip().lower()
+    if value in ("true", "1", "yes"):
+        return True
+    if value in ("false", "0", "no"):
+        return False
+
+    tag = (tag or os.getenv("PIKO_RELEASE_TAG", "")).lower()
+    return any(marker in tag for marker in ("-dev.", "-dev-", "-beta", "-rc.", "-rc-", "-alpha"))
+
+
+def sync_release_prerelease(release_id, prerelease, headers):
+    response = requests.patch(
+        f"{GITHUB_API}/{release_id}",
+        json={"prerelease": prerelease},
+        headers=headers,
+    )
+    if response.status_code == 200:
+        state = "pre-release" if prerelease else "stable"
+        print(f"✅ Synced release state to {state}")
+        return True
+
+    print(f"⚠️ Failed to sync prerelease state: {response.status_code}")
+    print(response.text)
+    return False
+
 
 def create_github_release(tag):
     print(f"Creating GitHub release with tag: {tag}")
 
-    is_prerelease = "beta" in tag.lower()
-    if is_prerelease:
-        print("⚠️ This will be created as a PRE-RELEASE")
+    prerelease = is_prerelease(tag)
+    if prerelease:
+        print("⚠️ Upstream is pre-release — keeping pre-release status")
+    else:
+        print("ℹ️ Upstream is stable release")
 
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # 既存リリース確認
     response = requests.get(GITHUB_API, headers=headers)
     if response.status_code == 200:
         for release in response.json():
             if release.get("tag_name") == tag:
                 print(f"✅ Release {tag} already exists.")
+                if release.get("prerelease") != prerelease:
+                    sync_release_prerelease(release["id"], prerelease, headers)
                 return release["id"], release["upload_url"].split("{")[0]
 
-    body = f"Auto Release: Origin Twitter Neo v{tag} <br>Build from: https://github.com/monsivamon/twitter-apk/releases"
+    apk_version = os.getenv("APK_VERSION", "")
+    build_url = f"https://github.com/{UPSTREAM_REPO}/releases/tag/{tag}"
+    body = (
+        f"Auto Release: Origin Twitter Neo {tag}<br>"
+        f"Build from: [{tag}]({build_url})"
+    )
+    if apk_version:
+        body += f"<br>Twitter APK: v{apk_version}"
+    if prerelease:
+        body += "<br><br>⚠️ This is a pre-release build based on an upstream pre-release."
 
     data = {
         "tag_name": tag,
-        "name": f"Origin Twitter Neo v{tag}",
+        "name": f"Origin Twitter Neo {tag}",
         "body": body,
         "draft": False,
-        "prerelease": is_prerelease
+        "prerelease": prerelease
     }
 
     response = requests.post(GITHUB_API, json=data, headers=headers)
@@ -60,10 +102,11 @@ def create_github_release(tag):
         info = response.json()
         print(f"✅ GitHub Release created: {info['html_url']}")
         return info["id"], info["upload_url"].split("{")[0]
-    else:
-        print(f"❌ Failed to create release: {response.status_code}")
-        print(response.text)
-        sys.exit(1)
+
+    print(f"❌ Failed to create release: {response.status_code}")
+    print(response.text)
+    sys.exit(1)
+
 
 def upload_apk_to_github(release_id, upload_url, apk_path):
     print(f"Uploading {os.path.basename(apk_path)}")
@@ -82,16 +125,16 @@ def upload_apk_to_github(release_id, upload_url, apk_path):
     if r.status_code == 201:
         print(f"✅ Uploaded {file_name}")
         return True
-    else:
-        print(f"❌ Upload failed {file_name}: {r.status_code}")
-        print(r.text)
-        return False
+
+    print(f"❌ Upload failed {file_name}: {r.status_code}")
+    print(r.text)
+    return False
+
 
 def release_apks():
     print("Starting APK release process...")
 
-    tag = get_tag()
-
+    tag = get_release_tag()
     release_id, upload_url = create_github_release(tag)
 
     apk_files = sorted(glob.glob(os.path.join(APK_DIR, "*.apk")))
@@ -107,6 +150,7 @@ def release_apks():
             ok += 1
 
     print(f"✅ Done: {ok}/{len(apk_files)} uploaded")
+
 
 if __name__ == "__main__":
     release_apks()

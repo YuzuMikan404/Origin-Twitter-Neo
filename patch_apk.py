@@ -100,12 +100,12 @@ def fix_webview_xml(decompiled_dir):
 
 
 def main():
-    monsivamon_tag = os.environ.get("monsivamon_TAG")
-    if not monsivamon_tag or monsivamon_tag.lower() in ("null", "none", ""):
-        print("Error: monsivamon_TAG is not set or invalid.")
+    apk_version = os.environ.get("APK_VERSION") or os.environ.get("monsivamon_TAG")
+    if not apk_version or apk_version.lower() in ("null", "none", ""):
+        print("Error: APK_VERSION is not set or invalid.")
         sys.exit(1)
 
-    print(f"Original monsivamon_TAG: {monsivamon_tag}")
+    print(f"APK version: {apk_version}")
 
     # APK ファイルを探す
     apk_path = None
@@ -124,12 +124,12 @@ def main():
 
     # バージョン解析
     version_pattern = r"(\d+\.\d+\.\d+)-release\.(\d+)"
-    match = re.search(version_pattern, monsivamon_tag)
+    match = re.search(version_pattern, apk_version)
     if match:
         clean_version = match.group(1)
         release_id = match.group(2)
     else:
-        clean_version = monsivamon_tag.split("-release")[0].split("-")[0]
+        clean_version = apk_version.split("-release")[0].split("-")[0]
         release_id = "0"
 
     print(f"Clean version: {clean_version}, Release ID: {release_id}")
