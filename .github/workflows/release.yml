@@ -2,36 +2,64 @@ name: Auto Patch & Release APK
 
 on:
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "同じバージョンのリリースが既にあっても再ビルドする"
+        type: boolean
+        default: false
   schedule:
-    - cron: '0 15 * * *'  # UTC 15:00 (日本時間 00:00)
+    - cron: "0 15 * * *" # UTC 15:00 (日本時間 00:00)
+
+# 最小権限。リリース作成には contents: write のみ必要。
+permissions:
+  contents: write
+
+# 同時実行による二重リリースを防止（実行中のものはキャンセルしない）
+concurrency:
+  group: patch-and-release
+  cancel-in-progress: false
+
+env:
+  # ランナーイメージ(ubuntu-latest)が更新されても壊れないよう、
+  # ツールのバージョンは OS 同梱物に依存せず、ここで一元管理する。
+  PYTHON_VERSION: "3.14"
+  JAVA_VERSION: "25"
+  JAVA_OPTS: "-Xmx6g" # 大きな APK のデコンパイル時の OOM 対策
 
 jobs:
   patch_and_release:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v3
+        uses: actions/checkout@v7
         with:
-          python-version: "3.9"
+          persist-credentials: false
 
-      - name: Get latest Piko release and APK info from GitHub
-        id: get_release_piko_and_origin
+      # ------------------------------------------------------------------
+      # 1. アップストリーム(Piko)の最新リリースを特定し、ビルド要否を判定
+      # ------------------------------------------------------------------
+      - name: Get latest Piko release and decide whether to build
+        id: upstream
         env:
           GH_TOKEN: ${{ github.token }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild }}
+          SELF_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+
+          api() {
+            curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$1"
+          }
 
           # /releases/latest は pre-release を除外するため使用しない。
           # /releases から draft 以外を新しい順に確認し、
           # 無印 twitter-piko APK を含む最初の Release を採用する。
-          PIKO_RELEASES=$(curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/monsivamon/twitter-apk/releases?per_page=30")
+          PIKO_RELEASES=$(api "https://api.github.com/repos/monsivamon/twitter-apk/releases?per_page=30")
 
           PIKO_RELEASE=$(echo "$PIKO_RELEASES" | jq -c '
             [
@@ -55,7 +83,7 @@ jobs:
           ')
 
           if [ -z "$PIKO_RELEASE" ] || [ "$PIKO_RELEASE" = "null" ]; then
-            echo "❌ No release containing a non-Material-You twitter-piko APK was found."
+            echo "::error::No release containing a non-Material-You twitter-piko APK was found."
             exit 1
           fi
 
@@ -74,158 +102,175 @@ jobs:
           PIKO_PATCH_VERSION="${PIKO_RELEASE_TAG#piko-v}"
           RELEASE_TAG="${APK_VERSION}_${PIKO_PATCH_VERSION}"
 
-          echo "PIKO_RELEASE_TAG=$PIKO_RELEASE_TAG" >> "$GITHUB_ENV"
-          echo "PIKO_PRERELEASE=$PIKO_PRERELEASE" >> "$GITHUB_ENV"
-          echo "PIKO_ASSET_NAME=$PIKO_ASSET_NAME" >> "$GITHUB_ENV"
-          echo "PIKO_ASSET_URL=$PIKO_ASSET_URL" >> "$GITHUB_ENV"
-          echo "APK_VERSION=$APK_VERSION" >> "$GITHUB_ENV"
-          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          {
+            echo "PIKO_RELEASE_TAG=$PIKO_RELEASE_TAG"
+            echo "PIKO_PRERELEASE=$PIKO_PRERELEASE"
+            echo "PIKO_ASSET_NAME=$PIKO_ASSET_NAME"
+            echo "PIKO_ASSET_URL=$PIKO_ASSET_URL"
+            echo "APK_VERSION=$APK_VERSION"
+            echo "RELEASE_TAG=$RELEASE_TAG"
+          } >> "$GITHUB_ENV"
 
-          echo "✅ Upstream release: $PIKO_RELEASE_TAG (prerelease=$PIKO_PRERELEASE)"
-          echo "✅ Selected APK: $PIKO_ASSET_NAME"
-          echo "✅ APK version: $APK_VERSION"
-          echo "✅ Release tag: $RELEASE_TAG"
+          echo "Upstream release : $PIKO_RELEASE_TAG (prerelease=$PIKO_PRERELEASE)"
+          echo "Selected APK     : $PIKO_ASSET_NAME"
+          echo "Release tag      : $RELEASE_TAG"
 
-          # /releases/latest は pre-release を除外するため使用しない
-          ORIGIN_RELEASES=$(curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/YuzuMikan404/Origin-Twitter-Neo/releases?per_page=30" || echo "[]")
+          # 自リポジトリに「公開済み」で同じタグのリリースが既にあるか確認。
+          # draft は除外する（前回の途中失敗分は再試行の対象にする）。
+          OWN_RELEASES=$(api "https://api.github.com/repos/${SELF_REPO}/releases?per_page=100" || echo "[]")
+          ALREADY_RELEASED=$(echo "$OWN_RELEASES" | jq -r --arg t "$RELEASE_TAG" \
+            'any(.[]?; .draft == false and .tag_name == $t)')
 
-          YuzuMikan404_TAG=$(echo "$ORIGIN_RELEASES" | jq -r '[.[] | select(.draft == false)] | .[0].tag_name // empty')
-
-          if [ -n "$YuzuMikan404_TAG" ]; then
-            echo "YuzuMikan404_TAG=${YuzuMikan404_TAG}" >> "$GITHUB_ENV"
-            echo "✅ Found existing release tag: $YuzuMikan404_TAG"
-          else
-            echo "ℹ️ No existing release found or API error."
-            echo "YuzuMikan404_TAG=" >> "$GITHUB_ENV"
-          fi
-
-      - name: Check if releases match
-        id: check_releases
-        run: |
-          if [ -z "${{ env.YuzuMikan404_TAG }}" ]; then
-            echo "No existing release found. Proceeding."
-            echo "SKIP=false" >> "$GITHUB_ENV"
-          elif [ "${{ env.RELEASE_TAG }}" == "${{ env.YuzuMikan404_TAG }}" ]; then
-            echo "Releases match. Skipping."
+          if [ "$ALREADY_RELEASED" = "true" ] && [ "$FORCE_REBUILD" != "true" ]; then
+            echo "Release $RELEASE_TAG already published. Skipping."
             echo "SKIP=true" >> "$GITHUB_ENV"
           else
-            echo "Releases differ. Proceeding."
+            echo "Proceeding with build."
             echo "SKIP=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Install requests and PyYAML
-        if: ${{ env.SKIP == 'false' }}
-        run: pip install requests PyYAML
+      # ------------------------------------------------------------------
+      # 2. ツールチェーン（以降はビルドが必要なときのみ）
+      # ------------------------------------------------------------------
+      - name: Set up Python
+        if: env.SKIP == 'false'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
-        if: ${{ env.SKIP == 'false' }}
-        run: |
-          sudo apt-get update && sudo apt-get install -y curl wget jq unzip openjdk-17-jdk
+      - name: Set up Java
+        if: env.SKIP == 'false'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Install Android SDK & Build Tools
-        if: ${{ env.SKIP == 'false' }}
-        run: |
-          wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O sdk-tools.zip
-          unzip sdk-tools.zip
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          mv cmdline-tools $HOME/android-sdk/cmdline-tools/latest
-          export ANDROID_HOME=$HOME/android-sdk
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "PATH=$PATH" >> $GITHUB_ENV
-          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --install "platform-tools" "build-tools;34.0.0"
+      - name: Install Python dependencies
+        if: env.SKIP == 'false'
+        run: python -m pip install --upgrade pip -r requirements.txt
 
-      - name: Install latest Apktool
-        if: ${{ env.SKIP == 'false' }}
+      # Android SDK はランナーイメージに最新版が同梱されている。
+      # 古い cmdline-tools を手動で入れ直さず、同梱の最新 build-tools を使う。
+      - name: Locate latest Android build-tools
+        if: env.SKIP == 'false'
         run: |
           set -euo pipefail
-          APKTOOL_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r .tag_name)
-          echo "Installing Apktool version: $APKTOOL_VERSION"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          BT_DIR="$SDK/build-tools"
+          LATEST=$(ls -1 "$BT_DIR" 2>/dev/null | grep -E '^[0-9]+(\.[0-9]+)*$' | sort -V | tail -n1 || true)
+          if [ -z "$LATEST" ] || [ ! -x "$BT_DIR/$LATEST/apksigner" ] || [ ! -x "$BT_DIR/$LATEST/zipalign" ]; then
+            echo "::error::Android build-tools (apksigner/zipalign) not found under $BT_DIR"
+            exit 1
+          fi
+          echo "Using Android build-tools $LATEST"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "$BT_DIR/$LATEST" >> "$GITHUB_PATH"
 
-          JAR_NAME="apktool_${APKTOOL_VERSION#v}.jar"
+      # Apktool は最新リリースの jar を取得し、バージョンの合った自前ラッパーで実行する。
+      # （master ブランチのラッパーを混ぜると jar とずれて壊れるため使わない）
+      - name: Install latest Apktool
+        if: env.SKIP == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DEST="$RUNNER_TEMP/apktool"
+          mkdir -p "$DEST"
+          gh release download --repo iBotPeaches/Apktool \
+            --pattern 'apktool_*.jar' --dir "$DEST" --clobber
 
-          wget -q "https://github.com/iBotPeaches/Apktool/releases/download/$APKTOOL_VERSION/$JAR_NAME" -O /tmp/apktool.jar
+          JARS=("$DEST"/apktool_*.jar)
+          if [ "${#JARS[@]}" -ne 1 ] || [ ! -s "${JARS[0]}" ]; then
+            echo "::error::Expected exactly one apktool_*.jar, got: ${JARS[*]}"
+            exit 1
+          fi
+          JAR_NAME="${JARS[0]##*/}"
+          mv "${JARS[0]}" "$DEST/apktool.jar"
 
-          wget -q https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /tmp/apktool
-
-          sudo mv /tmp/apktool /usr/local/bin/
-          sudo mv /tmp/apktool.jar /usr/local/bin/
+          printf '#!/usr/bin/env bash\nexec java ${JAVA_OPTS:-} -jar "%s/apktool.jar" "$@"\n' "$DEST" \
+            | sudo tee /usr/local/bin/apktool > /dev/null
           sudo chmod +x /usr/local/bin/apktool
 
-          apktool --version || { echo "apktool command failed"; exit 1; }
+          echo "Installed: $JAR_NAME"
+          apktool --version
 
-      - name: Set Java Heap Size for large APK
-        if: ${{ env.SKIP == 'false' }}
-        run: echo "JAVA_OPTS=-Xmx6g" >> $GITHUB_ENV
-
-      - name: Create downloads directory
-        if: ${{ env.SKIP == 'false' }}
-        run: mkdir -p downloads
-
-      - name: Download APK file
-        if: ${{ env.SKIP == 'false' }}
-        id: download_apk
+      # ------------------------------------------------------------------
+      # 3. 署名鍵の決定と検証（長いビルドの前に失敗させる）
+      #    - Secrets (SIGNING_KEY 等) が設定されていればそれを使う
+      #    - 未設定なら、リポジトリ同梱の公開キーストアで署名する
+      #      （オープンソースとして、フォークでも Secrets なしでビルドできる）
+      # ------------------------------------------------------------------
+      - name: Setup and verify signing key
+        if: env.SKIP == 'false'
+        env:
+          SECRET_SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SECRET_STOREPASS: ${{ secrets.KEY_STORE_PASSWORD }}
+          SECRET_KEYPASS: ${{ secrets.KEY_PASSWORD }}
+          SECRET_ALIAS: ${{ secrets.ALIAS }}
         run: |
           set -euo pipefail
 
-          if [ -z "${{ env.PIKO_ASSET_URL }}" ] || [ -z "${{ env.PIKO_ASSET_NAME }}" ]; then
-            echo "❌ PIKO_ASSET_URL or PIKO_ASSET_NAME is empty."
-            echo "apk_downloaded=false" >> "$GITHUB_ENV"
-            exit 1
-          fi
-
-          OUTPUT_FILE="downloads/${{ env.PIKO_ASSET_NAME }}"
-
-          echo "Downloading: ${{ env.PIKO_ASSET_NAME }}"
-          echo "From release: ${{ env.PIKO_RELEASE_TAG }}"
-          echo "URL: ${{ env.PIKO_ASSET_URL }}"
-
-          curl -fL --retry 3 --retry-delay 2 \
-            "${{ env.PIKO_ASSET_URL }}" \
-            -o "$OUTPUT_FILE"
-
-          if [ -s "$OUTPUT_FILE" ]; then
-            echo "✅ Downloaded: $OUTPUT_FILE ($(wc -c < "$OUTPUT_FILE") bytes)"
-            echo "apk_downloaded=true" >> "$GITHUB_ENV"
+          if [ -n "$SECRET_SIGNING_KEY" ]; then
+            echo "Using signing key from repository secrets."
+            for name in SECRET_STOREPASS SECRET_KEYPASS SECRET_ALIAS; do
+              if [ -z "${!name}" ]; then
+                echo "::error::SIGNING_KEY is set but KEY_STORE_PASSWORD / KEY_PASSWORD / ALIAS is missing."
+                exit 1
+              fi
+            done
+            printf '%s' "$SECRET_SIGNING_KEY" | base64 -d > origin-twitter.keystore
+            STOREPASS="$SECRET_STOREPASS"; KEYPASS="$SECRET_KEYPASS"; ALIAS="$SECRET_ALIAS"
           else
-            echo "❌ Downloaded APK is empty or missing."
-            echo "apk_downloaded=false" >> "$GITHUB_ENV"
-            exit 1
+            # 同梱の origin-twitter.keystore は意図的に公開している鍵。
+            # 以下の値も公開情報（誰でも同じ鍵で署名・改造できるようにするため）。
+            echo "::notice::No SIGNING_KEY secret; using the public keystore bundled in this repository."
+            STOREPASS="123456789"; KEYPASS="123456789"; ALIAS="origin"
           fi
 
-      - name: Install APK Framework for Apktool
-        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+          keytool -list -keystore origin-twitter.keystore \
+            -storepass "$STOREPASS" -alias "$ALIAS" > /dev/null
+          echo "Keystore OK (alias: $ALIAS)"
+
+          # 後続ステップへ引き継ぐ（Secrets 由来の値はログ上マスクされる）
+          {
+            echo "STOREPASS=$STOREPASS"
+            echo "KEYPASS=$KEYPASS"
+            echo "ALIAS=$ALIAS"
+          } >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # 4. ダウンロード → パッチ → リリース
+      # ------------------------------------------------------------------
+      - name: Download APK file
+        if: env.SKIP == 'false'
         run: |
           set -euo pipefail
-          APK_FILE="downloads/${{ env.PIKO_ASSET_NAME }}"
-          echo "Installing framework from: $APK_FILE"
-          apktool if "$APK_FILE"
+          mkdir -p downloads
+          OUTPUT_FILE="downloads/${PIKO_ASSET_NAME}"
+          echo "Downloading ${PIKO_ASSET_NAME} (from ${PIKO_RELEASE_TAG})"
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors \
+            "$PIKO_ASSET_URL" -o "$OUTPUT_FILE"
+          if [ ! -s "$OUTPUT_FILE" ]; then
+            echo "::error::Downloaded APK is empty or missing."
+            exit 1
+          fi
+          echo "Downloaded: $OUTPUT_FILE ($(wc -c < "$OUTPUT_FILE") bytes)"
 
-      - name: Setup Signing Key
-        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
-        run: |
-          echo "Decoding keystore from secrets..."
-          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > origin-twitter.keystore
+      - name: Install APK framework for Apktool
+        if: env.SKIP == 'false'
+        run: apktool if "downloads/${PIKO_ASSET_NAME}"
 
       - name: Run Patch APK script
-        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
-        env:
-          STOREPASS: ${{ secrets.KEY_STORE_PASSWORD }}
-          KEYPASS: ${{ secrets.KEY_PASSWORD }}
-          ALIAS: ${{ secrets.ALIAS }}
-          APK_VERSION: ${{ env.APK_VERSION }}
-        run: python patch_apk.py
+        if: env.SKIP == 'false'
+        run: python patch_apk.py # STOREPASS / KEYPASS / ALIAS は前のステップから引き継ぎ
 
       - name: Run Release APK script
-        if: ${{ env.SKIP == 'false' && env.apk_downloaded == 'true' }}
+        if: env.SKIP == 'false'
         env:
-          GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
-          PIKO_RELEASE_TAG: ${{ env.PIKO_RELEASE_TAG }}
-          PIKO_PRERELEASE: ${{ env.PIKO_PRERELEASE }}
-          APK_VERSION: ${{ env.APK_VERSION }}
+          # 専用 PAT があればそれを、無ければ標準の GITHUB_TOKEN(contents: write) を使う
+          GITHUB_TOKEN: ${{ secrets.YuzuMikan404_TOKEN || github.token }}
         run: python release_apk.py
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f origin-twitter.keystore # ランナー上のコピーのみ（リポジトリには影響しない）

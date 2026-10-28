@@ -1,168 +1,238 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""patched_apks/ の APK を GitHub Release にアップロードする。
 
+設計方針:
+  * まず draft で作成 → 全 APK のアップロード完了を確認 → 最後に公開
+    （途中で失敗しても公開済みの不完全リリースが残らず、次回実行で再試行される）
+  * 再実行しても安全（同名・同サイズのアセットはスキップ、違えば置換）
+  * ネットワークエラー・レート制限にはリトライ
+"""
+
+from __future__ import annotations
+
+import json
 import os
-import requests
 import sys
-import glob
+import time
+from pathlib import Path
 
-GITHUB_REPO = "YuzuMikan404/Origin-Twitter-Neo"
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-if not GITHUB_TOKEN:
-    print("Error: GITHUB_TOKEN environment variable is not set.")
-    sys.exit(1)
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
-APK_DIR = "patched_apks"
+API = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
+REPO = os.environ.get("GITHUB_REPOSITORY", "YuzuMikan404/Origin-Twitter-Neo")
 UPSTREAM_REPO = "monsivamon/twitter-apk"
+APK_DIR = Path("patched_apks")
+BUILD_MANIFEST = APK_DIR / "build-manifest.json"
+UPLOAD_ATTEMPTS = 3
+PRERELEASE_MARKERS = ("-dev.", "-dev-", "-beta", "-rc.", "-rc-", "-alpha")
 
 
-def get_release_tag():
+def make_session(token: str) -> requests.Session:
+    session = requests.Session()
+    session.headers.update(
+        {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+    )
+    retry = Retry(
+        total=5,
+        backoff_factor=2,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET", "PATCH", "DELETE"}),  # POST は自前で冪等に再試行
+        respect_retry_after_header=True,
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    return session
+
+
+def get_release_tag() -> str:
     tag = os.getenv("RELEASE_TAG")
     if not tag:
         apk_version = os.getenv("APK_VERSION", "")
-        piko_tag = os.getenv("PIKO_RELEASE_TAG", "")
-        piko_patch = piko_tag.removeprefix("piko-v") if piko_tag else ""
+        piko_patch = os.getenv("PIKO_RELEASE_TAG", "").removeprefix("piko-v")
         if apk_version and piko_patch:
             tag = f"{apk_version}_{piko_patch}"
     if not tag:
-        print("❌ Error: RELEASE_TAG is not set.")
-        sys.exit(1)
+        sys.exit("❌ Error: RELEASE_TAG is not set.")
     print(f"Using release tag: {tag}")
     return tag
 
 
-def is_prerelease(tag=None):
+def is_prerelease(tag: str) -> bool:
     value = os.getenv("PIKO_PRERELEASE", "").strip().lower()
     if value in ("true", "1", "yes"):
         return True
     if value in ("false", "0", "no"):
         return False
-
-    tag = (tag or os.getenv("RELEASE_TAG", "")).lower()
-    piko_tag = os.getenv("PIKO_RELEASE_TAG", "").lower()
-    combined = f"{tag} {piko_tag}"
-    return any(marker in combined for marker in ("-dev.", "-dev-", "-beta", "-rc.", "-rc-", "-alpha"))
+    combined = f"{tag} {os.getenv('PIKO_RELEASE_TAG', '')}".lower()
+    return any(marker in combined for marker in PRERELEASE_MARKERS)
 
 
-def sync_release_prerelease(release_id, prerelease, headers):
-    response = requests.patch(
-        f"{GITHUB_API}/{release_id}",
-        json={"prerelease": prerelease},
-        headers=headers,
-    )
-    if response.status_code == 200:
-        state = "pre-release" if prerelease else "stable"
-        print(f"✅ Synced release state to {state}")
-        return True
-
-    print(f"⚠️ Failed to sync prerelease state: {response.status_code}")
-    print(response.text)
-    return False
-
-
-def create_github_release(tag):
-    print(f"Creating GitHub release with tag: {tag}")
-
-    prerelease = is_prerelease(tag)
-    if prerelease:
-        print("⚠️ Upstream is pre-release — keeping pre-release status")
+def load_expected_files() -> list[Path]:
+    """今回のビルドで作られたはずの APK の一覧を返し、欠けていれば異常終了する。"""
+    if BUILD_MANIFEST.is_file():
+        names = json.loads(BUILD_MANIFEST.read_text(encoding="utf-8")).get("files", [])
+        files = [APK_DIR / n for n in names]
     else:
-        print("ℹ️ Upstream is stable release")
+        print("⚠️ build-manifest.json not found; falling back to *.apk glob")
+        files = sorted(APK_DIR.glob("*.apk"))
 
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
+    if not files:
+        sys.exit("❌ No APK files to release.")
+    bad = [f.name for f in files if not f.is_file() or f.stat().st_size == 0]
+    if bad:
+        sys.exit(f"❌ Missing or empty APK file(s): {', '.join(bad)}")
+    return files
 
-    response = requests.get(GITHUB_API, headers=headers)
-    if response.status_code == 200:
-        for release in response.json():
+
+def find_release(session: requests.Session, tag: str) -> dict | None:
+    """draft を含めてタグ名でリリースを探す。"""
+    for page in range(1, 11):
+        resp = session.get(f"{API}/repos/{REPO}/releases", params={"per_page": 100, "page": page}, timeout=30)
+        resp.raise_for_status()
+        releases = resp.json()
+        for release in releases:
             if release.get("tag_name") == tag:
-                print(f"✅ Release {tag} already exists.")
-                if release.get("prerelease") != prerelease:
-                    sync_release_prerelease(release["id"], prerelease, headers)
-                return release["id"], release["upload_url"].split("{")[0]
+                return release
+        if len(releases) < 100:
+            break
+    return None
 
+
+def build_body(tag: str, prerelease: bool) -> str:
     piko_tag = os.getenv("PIKO_RELEASE_TAG", "")
     apk_version = os.getenv("APK_VERSION", "")
-    build_url = f"https://github.com/{UPSTREAM_REPO}/releases/tag/{piko_tag}"
-    body = (
-        f"Auto Release: Origin Twitter Neo {tag}<br>"
-        f"Build from: [{piko_tag}]({build_url})"
-    )
+    body = f"Auto Release: Origin Twitter Neo {tag}<br>"
+    body += f"Build from: [{piko_tag}](https://github.com/{UPSTREAM_REPO}/releases/tag/{piko_tag})"
     if apk_version:
         body += f"<br>Twitter APK: v{apk_version}"
     if piko_tag:
-        piko_patch = piko_tag.removeprefix("piko-v")
-        body += f"<br>Piko patch: v{piko_patch}"
+        body += f"<br>Piko patch: v{piko_tag.removeprefix('piko-v')}"
     if prerelease:
         body += "<br><br>⚠️ This is a pre-release build based on an upstream pre-release."
+    return body
 
-    data = {
+
+def get_or_create_release(session: requests.Session, tag: str, prerelease: bool) -> dict:
+    release = find_release(session, tag)
+    if release:
+        state = "draft" if release.get("draft") else "published"
+        print(f"✅ Release {tag} already exists ({state}); reusing it.")
+        return release
+
+    print(f"Creating draft release: {tag}")
+    payload = {
         "tag_name": tag,
         "name": f"Origin Twitter Neo {tag}",
-        "body": body,
-        "draft": False,
-        "prerelease": prerelease
+        "body": build_body(tag, prerelease),
+        "draft": True,
+        "prerelease": prerelease,
     }
+    last_error = ""
+    for attempt in range(1, 4):
+        try:
+            resp = session.post(f"{API}/repos/{REPO}/releases", json=payload, timeout=30)
+            if resp.status_code == 201:
+                return resp.json()
+            last_error = f"{resp.status_code}: {resp.text}"
+        except requests.RequestException as exc:
+            last_error = repr(exc)
+        # 通信エラー等で実は作成済みだった場合に重複させない
+        existing = find_release(session, tag)
+        if existing:
+            return existing
+        print(f"⚠️ Create release failed (attempt {attempt}/3): {last_error}")
+        time.sleep(5 * attempt)
+    sys.exit(f"❌ Failed to create release: {last_error}")
 
-    response = requests.post(GITHUB_API, json=data, headers=headers)
-    print(f"Create release response status: {response.status_code}")
 
-    if response.status_code == 201:
-        info = response.json()
-        print(f"✅ GitHub Release created: {info['html_url']}")
-        return info["id"], info["upload_url"].split("{")[0]
+def upload_asset(session: requests.Session, release_id: int, upload_url: str, apk: Path) -> bool:
+    size = apk.stat().st_size
+    print(f"Uploading {apk.name} ({size / 1_048_576:.1f} MiB)")
 
-    print(f"❌ Failed to create release: {response.status_code}")
-    print(response.text)
-    sys.exit(1)
+    for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+        try:
+            resp = session.get(f"{API}/repos/{REPO}/releases/{release_id}", timeout=30)
+            resp.raise_for_status()
+            existing = {a["name"]: a for a in resp.json().get("assets", [])}
 
+            asset = existing.get(apk.name)
+            if asset:
+                if asset.get("state") == "uploaded" and asset.get("size") == size:
+                    print(f"  ↪ already uploaded, skipping: {apk.name}")
+                    return True
+                session.delete(f"{API}/repos/{REPO}/releases/assets/{asset['id']}", timeout=30)
 
-def upload_apk_to_github(release_id, upload_url, apk_path):
-    print(f"Uploading {os.path.basename(apk_path)}")
-
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Content-Type": "application/vnd.android.package-archive",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    file_name = os.path.basename(apk_path)
-
-    with open(apk_path, "rb") as f:
-        r = requests.post(f"{upload_url}?name={file_name}", headers=headers, data=f)
-
-    if r.status_code == 201:
-        print(f"✅ Uploaded {file_name}")
-        return True
-
-    print(f"❌ Upload failed {file_name}: {r.status_code}")
-    print(r.text)
+            with apk.open("rb") as fh:
+                up = session.post(
+                    upload_url,
+                    params={"name": apk.name},
+                    headers={"Content-Type": "application/vnd.android.package-archive"},
+                    data=fh,
+                    timeout=(30, 900),
+                )
+            if up.status_code == 201:
+                print(f"✅ Uploaded {apk.name}")
+                return True
+            print(f"⚠️ Upload failed (attempt {attempt}/{UPLOAD_ATTEMPTS}): {up.status_code} {up.text[:300]}")
+        except requests.RequestException as exc:
+            print(f"⚠️ Upload error (attempt {attempt}/{UPLOAD_ATTEMPTS}): {exc!r}")
+        time.sleep(5 * attempt)
     return False
 
 
-def release_apks():
-    print("Starting APK release process...")
+def publish_release(session: requests.Session, release_id: int, prerelease: bool) -> None:
+    resp = session.patch(
+        f"{API}/repos/{REPO}/releases/{release_id}",
+        json={"draft": False, "prerelease": prerelease},
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        sys.exit(f"❌ Failed to publish release: {resp.status_code} {resp.text}")
+    print(f"✅ Published: {resp.json().get('html_url')}")
+
+
+def main() -> None:
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        sys.exit("Error: GITHUB_TOKEN environment variable is not set.")
 
     tag = get_release_tag()
-    release_id, upload_url = create_github_release(tag)
+    prerelease = is_prerelease(tag)
+    print("⚠️ Upstream is pre-release" if prerelease else "ℹ️ Upstream is stable release")
 
-    apk_files = sorted(glob.glob(os.path.join(APK_DIR, "*.apk")))
-    if not apk_files:
-        print("❌ No APK files found.")
-        sys.exit(1)
+    files = load_expected_files()
+    print(f"Found {len(files)} APK(s) to release")
 
-    print(f"Found {len(apk_files)} APK(s)")
+    session = make_session(token)
+    release = get_or_create_release(session, tag, prerelease)
+    upload_url = release["upload_url"].split("{")[0]
 
-    ok = 0
-    for apk in apk_files:
-        if upload_apk_to_github(release_id, upload_url, apk):
-            ok += 1
+    failed = [f.name for f in files if not upload_asset(session, release["id"], upload_url, f)]
+    if failed:
+        sys.exit(
+            f"❌ Upload failed for: {', '.join(failed)}\n"
+            "   The release was left as a draft and will be retried on the next run."
+        )
 
-    print(f"✅ Done: {ok}/{len(apk_files)} uploaded")
+    # 公開前に、期待する全アセットが揃っていることを最終確認
+    resp = session.get(f"{API}/repos/{REPO}/releases/{release['id']}", timeout=30)
+    resp.raise_for_status()
+    uploaded = {a["name"] for a in resp.json().get("assets", []) if a.get("state") == "uploaded"}
+    missing = [f.name for f in files if f.name not in uploaded]
+    if missing:
+        sys.exit(f"❌ Assets missing after upload: {', '.join(missing)}")
+
+    if release.get("draft") or release.get("prerelease") != prerelease:
+        publish_release(session, release["id"], prerelease)
+    print(f"✅ Done: {len(files)}/{len(files)} uploaded")
 
 
 if __name__ == "__main__":
-    release_apks()
+    main()

@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Origin Twitter Neo: Piko パッチ済み Twitter APK から、テーマカラー別 APK を作る。
 
+設計方針:
+  * 1 色でも失敗したら終了コード 1 で終わる（部分的なリリースを作らない）
+  * 署名情報は環境変数のみ（デフォルトのパスワードは持たない）
+  * apktool.yml / AndroidManifest.xml はテキスト編集（再シリアライズによる破損を避ける）
+"""
+
+from __future__ import annotations
+
+import json
 import os
-import subprocess
-import yaml
-import xml.etree.ElementTree as ET
 import re
-import sys
 import shutil
-import glob
+import subprocess
+import sys
 import traceback
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
-# 環境変数から設定を読み込む（GitHub Actions Secrets）
-KEYSTORE_PATH = "./origin-twitter.keystore"
-ALIAS = os.environ.get("ALIAS", "origin")
-STOREPASS = os.environ.get("STOREPASS", "123456789")
-KEYPASS = os.environ.get("KEYPASS", "123456789")
+KEYSTORE_PATH = os.environ.get("KEYSTORE_PATH", "./origin-twitter.keystore")
+DOWNLOADS_DIR = Path("downloads")
+OUTPUT_DIR = Path("patched_apks")
+BUILD_MANIFEST = OUTPUT_DIR / "build-manifest.json"
+TOOL_TIMEOUT = int(os.environ.get("APKTOOL_TIMEOUT", "1800"))  # 秒
 
 THEME_COLORS = {
     "1d9bf0": "Blue",
@@ -27,393 +36,378 @@ THEME_COLORS = {
     "c20024": "Crimsonate",
     "1e50a2": "Lazurite",
     "808080": "Monotone",
-    "ffadc0": "MateChan"
+    "ffadc0": "MateChan",
 }
 
+ANDROID_NS = "http://schemas.android.com/apk/res/android"
 
-def get_apktool_path():
-    """apktool の実行パスを検出"""
-    possible_paths = [
-        "/usr/local/bin/apktool",
-        ["java", "-jar", "/usr/local/bin/apktool.jar"],
-        "apktool",
-    ]
 
-    for path_spec in possible_paths:
-        if isinstance(path_spec, list):
-            cmd = path_spec + ["--version"]
-        else:
-            cmd = [path_spec, "--version"]
+# --------------------------------------------------------------------------
+# ツール検出・実行
+# --------------------------------------------------------------------------
+def find_apktool() -> list[str]:
+    """動作する apktool コマンドを返す。見つからなければ SystemExit。"""
+    candidates: list[list[str]] = []
+    jar = os.environ.get("APKTOOL_JAR")
+    if jar:
+        candidates.append(["java", "-jar", jar])
+    exe = shutil.which("apktool")
+    if exe:
+        candidates.append([exe])
 
+    for cmd in candidates:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=False)
-            if result.returncode == 0:
-                print(f"✅ apktool found: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-                return path_spec
-        except Exception as e:
-            print(f"Warning: checking {cmd} raised {e!r}")
+            result = subprocess.run(
+                cmd + ["--version"], capture_output=True, text=True, timeout=60, check=False
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"Warning: {' '.join(cmd)} raised {exc!r}")
             continue
+        if result.returncode == 0:
+            print(f"✅ apktool: {' '.join(cmd)} (version {result.stdout.strip()})")
+            return cmd
 
-    print("❌ Error: Could not find a working apktool path")
-    return None
-
-
-print("=== Initializing patch_apk.py ===")
-APK_TOOL = get_apktool_path()
-if APK_TOOL is None:
-    print("FATAL: apktool is not available.")
-    sys.exit(1)
+    sys.exit("❌ FATAL: no working apktool found (install it or set APKTOOL_JAR).")
 
 
-def fix_webview_xml(decompiled_dir):
-    """すべての layout XML で +@id/ を @+id/ に置換（webview.xml エラー対策）"""
-    layout_dir = os.path.join(decompiled_dir, "res", "layout")
-    if not os.path.exists(layout_dir):
-        print(f"  No layout directory found in {decompiled_dir}")
-        return
-
-    fixed_count = 0
-    for xml_path in glob.glob(os.path.join(layout_dir, "*.xml")):
-        try:
-            with open(xml_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            original = content
-            # 問題の代表例を優先修正
-            content = content.replace("+@id/webview", "@+id/webview")
-            # 他の +@id/xxx もすべて修正
-            content = re.sub(r'\+@id/([a-zA-Z0-9_]+)', r'@+id/\1', content)
-
-            if content != original:
-                with open(xml_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                fixed_count += 1
-                print(f"  Fixed ID reference in: {os.path.basename(xml_path)}")
-
-        except Exception as e:
-            print(f"  Warning: Failed to fix {xml_path}: {e}")
-
-    if fixed_count > 0:
-        print(f"  ✓ Fixed {fixed_count} layout XML file(s)")
-    else:
-        print("  No +@id/ references needed fixing")
+def _version_key(name: str) -> tuple[int, ...]:
+    return tuple(int(p) for p in name.split("."))
 
 
-def main():
-    apk_version = os.environ.get("APK_VERSION") or os.environ.get("monsivamon_TAG")
-    if not apk_version or apk_version.lower() in ("null", "none", ""):
-        print("Error: APK_VERSION is not set or invalid.")
-        sys.exit(1)
-
-    print(f"APK version: {apk_version}")
-
-    # APK ファイルを探す
-    apk_path = None
-    downloads_dir = "downloads"
-    if os.path.isdir(downloads_dir):
-        for filename in os.listdir(downloads_dir):
-            if filename.lower().endswith(".apk"):
-                apk_path = os.path.join(downloads_dir, filename)
-                break
-
-    if not apk_path or not os.path.isfile(apk_path):
-        print(f"Error: No APK file found in {downloads_dir}/")
-        sys.exit(1)
-
-    print(f"Found APK: {apk_path}")
-
-    # バージョン解析
-    version_pattern = r"(\d+\.\d+\.\d+)-release\.(\d+)"
-    match = re.search(version_pattern, apk_version)
-    if match:
-        clean_version = match.group(1)
-        release_id = match.group(2)
-    else:
-        clean_version = apk_version.split("-release")[0].split("-")[0]
-        release_id = "0"
-
-    print(f"Clean version: {clean_version}, Release ID: {release_id}")
-
-    OUTPUT_DIR = "patched_apks"
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    if not os.path.exists(KEYSTORE_PATH):
-        print(f"❌ Keystore not found: {KEYSTORE_PATH}")
-        sys.exit(1)
-
-    for color_hex, color_name in THEME_COLORS.items():
-        print("\n" + "=" * 70)
-        print(f"Processing {color_name} theme (color: #{color_hex})")
-        print("=" * 70)
-
-        decompiled_dir = f"decompiled-twitter-{clean_version}-{color_name}"
-
-        try:
-            # デコンパイル
-            decompile_apk(apk_path, decompiled_dir)
-
-            # ★ ここで ID参照問題を即座に修正（これが最重要）
-            fix_webview_xml(decompiled_dir)
-
-            # パッチ適用
-            update_apktool_yml(decompiled_dir)
-            modify_manifest(decompiled_dir)
-            modify_xml(decompiled_dir)
-            modify_styles(decompiled_dir, color_hex, color_name)
-            modify_colors(decompiled_dir, color_hex)
-            modify_smali(decompiled_dir, color_hex)
-
-            # リコンパイル
-            unsigned_apk = os.path.join(OUTPUT_DIR, f"unsigned-{color_name}.apk")
-            recompile_apk(decompiled_dir, unsigned_apk)
-
-            # 署名
-            final_apk_name = f"Origin-Twitter-Neo.{color_name}.v{clean_version}-release.{release_id}.apk"
-            final_apk_path = os.path.join(OUTPUT_DIR, final_apk_name)
-            sign_apk_v2(unsigned_apk, final_apk_path)
-
-            # クリーンアップ
-            if os.path.exists(unsigned_apk):
-                os.remove(unsigned_apk)
-            shutil.rmtree(decompiled_dir, ignore_errors=True)
-
-            print(f"✅ Successfully created: {final_apk_name}")
-
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Command failed for {color_name}:")
-            print(f"  Command: {' '.join(e.cmd)}")
-            print(f"  Return code: {e.returncode}")
-            if e.stderr:
-                print("  stderr:\n" + e.stderr.strip())
-            if e.stdout:
-                print("  stdout:\n" + e.stdout.strip())
+def find_android_tool(tool: str) -> str:
+    """最新の build-tools から zipalign / apksigner を探す。"""
+    for env_name in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        root = os.environ.get(env_name)
+        if not root:
             continue
-        except Exception as e:
-            print(f"❌ Error processing {color_name}: {e}")
-            traceback.print_exc()
+        build_tools = Path(root) / "build-tools"
+        if not build_tools.is_dir():
             continue
+        versions = sorted(
+            (p for p in build_tools.iterdir() if re.fullmatch(r"\d+(\.\d+)*", p.name)),
+            key=lambda p: _version_key(p.name),
+            reverse=True,
+        )
+        for version_dir in versions:
+            candidate = version_dir / tool
+            if candidate.is_file():
+                return str(candidate)
 
-    print("\n" + "=" * 70)
-    print("All color variants processed!")
+    found = shutil.which(tool)
+    if found:
+        return found
+    sys.exit(f"❌ FATAL: Android build-tool '{tool}' not found (set ANDROID_HOME).")
 
 
-def decompile_apk(apk_path, output_path):
-    print(f"Decompiling to: {output_path}")
-    if os.path.exists(output_path):
-        shutil.rmtree(output_path, ignore_errors=True)
-
-    cmd = (
-        APK_TOOL + ["d", "-f", apk_path, "-o", output_path]
-        if isinstance(APK_TOOL, list)
-        else [APK_TOOL, "d", "-f", apk_path, "-o", output_path]
-    )
-
+def run_checked(cmd: list[str], what: str) -> subprocess.CompletedProcess:
+    """コマンドを実行し、失敗時は出力を表示して CalledProcessError を送出。"""
     env = os.environ.copy()
-    env["JAVA_OPTS"] = env.get("JAVA_OPTS", "-Xmx6g")  # OOM対策
-
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
-        print("Decompile failed:")
-        print("stderr:\n" + result.stderr.strip())
-        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
-    print("✅ Decompilation completed")
-
-
-def recompile_apk(decompiled_path, output_apk):
-    print(f"Recompiling to: {output_apk}")
-    cmd = (
-        APK_TOOL + ["b", decompiled_path, "-o", output_apk]
-        if isinstance(APK_TOOL, list)
-        else [APK_TOOL, "b", decompiled_path, "-o", output_apk]
+    env.setdefault("JAVA_OPTS", "-Xmx6g")  # OOM 対策
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, env=env, timeout=TOOL_TIMEOUT, check=False
     )
-
-    print(f"Running: {' '.join(cmd)}")
-
-    env = os.environ.copy()
-    env["JAVA_OPTS"] = env.get("JAVA_OPTS", "-Xmx6g")
-
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
-        print("Recompilation failed:")
+        print(f"{what} failed (exit {result.returncode}):")
         print("stderr:\n" + (result.stderr.strip() or "(empty)"))
         print("stdout:\n" + (result.stdout.strip() or "(empty)"))
         raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+    return result
+
+
+# --------------------------------------------------------------------------
+# apktool d / b
+# --------------------------------------------------------------------------
+def decompile_apk(apktool: list[str], apk_path: Path, output_dir: Path) -> None:
+    print(f"Decompiling to: {output_dir}")
+    shutil.rmtree(output_dir, ignore_errors=True)
+    run_checked(apktool + ["d", "-f", str(apk_path), "-o", str(output_dir)], "Decompile")
+    print("✅ Decompilation completed")
+
+
+def recompile_apk(apktool: list[str], decompiled_dir: Path, output_apk: Path) -> None:
+    print(f"Recompiling to: {output_apk}")
+    run_checked(apktool + ["b", str(decompiled_dir), "-o", str(output_apk)], "Recompile")
+    if not output_apk.is_file() or output_apk.stat().st_size == 0:
+        raise RuntimeError(f"apktool reported success but {output_apk} is missing/empty")
     print("✅ Recompilation succeeded")
 
 
-# 以下は変更なしの既存関数（省略形）
-def update_apktool_yml(decompiled_path):
-    yml_path = os.path.join(decompiled_path, "apktool.yml")
-    if not os.path.exists(yml_path):
+# --------------------------------------------------------------------------
+# パッチ処理
+# --------------------------------------------------------------------------
+def fix_webview_xml(decompiled_dir: Path) -> None:
+    """layout XML の '+@id/' を '@+id/' に置換する（webview.xml エラー対策）。"""
+    layout_dir = decompiled_dir / "res" / "layout"
+    if not layout_dir.is_dir():
+        print(f"  No layout directory found in {decompiled_dir}")
         return
-    with open(yml_path, "r", encoding="utf-8") as f:
-        yml_data = yaml.safe_load(f) or {}
-    doNotCompress = yml_data.get("doNotCompress", [])
-    if ".so" not in doNotCompress:
-        doNotCompress.append(".so")
-    yml_data["doNotCompress"] = doNotCompress
-    with open(yml_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(yml_data, f)
+
+    fixed = 0
+    for xml_path in layout_dir.glob("*.xml"):
+        content = xml_path.read_text(encoding="utf-8")
+        new_content = re.sub(r"\+@id/([A-Za-z0-9_]+)", r"@+id/\1", content)
+        if new_content != content:
+            xml_path.write_text(new_content, encoding="utf-8")
+            fixed += 1
+            print(f"  Fixed ID reference in: {xml_path.name}")
+
+    print(f"  ✓ Fixed {fixed} layout XML file(s)" if fixed else "  No +@id/ references needed fixing")
 
 
-def modify_manifest(decompiled_path):
-    manifest_path = os.path.join(decompiled_path, "AndroidManifest.xml")
-    if not os.path.exists(manifest_path):
+def update_apktool_yml(decompiled_dir: Path) -> None:
+    """doNotCompress に '.so' を追加する（テキスト編集。YAML の再出力はしない）。"""
+    yml_path = decompiled_dir / "apktool.yml"
+    if not yml_path.is_file():
         return
-    ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
-    tree = ET.parse(manifest_path)
-    root = tree.getroot()
-    application = root.find(".//application")
-    if application is not None:
-        application.set("{http://schemas.android.com/apk/res/android}extractNativeLibs", "true")
-    tree.write(manifest_path, encoding="utf-8", xml_declaration=True)
+
+    lines = yml_path.read_text(encoding="utf-8").splitlines()
+    key_idx = next((i for i, ln in enumerate(lines) if ln.startswith("doNotCompress:")), None)
+
+    if key_idx is None:
+        lines += ["doNotCompress:", "- .so"]
+    else:
+        inline = lines[key_idx].split(":", 1)[1].strip()
+        if inline == "[]":
+            lines[key_idx : key_idx + 1] = ["doNotCompress:", "- .so"]
+        else:
+            end = key_idx + 1
+            while end < len(lines) and re.match(r"^\s*-\s", lines[end]):
+                end += 1
+            items = {ln.strip()[1:].strip().strip("'\"") for ln in lines[key_idx + 1 : end]}
+            if ".so" not in items:
+                indent = re.match(r"^(\s*)-", lines[end - 1])
+                prefix = indent.group(1) if indent and end - 1 > key_idx else ""
+                lines.insert(end, f"{prefix}- .so")
+
+    yml_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def modify_xml(decompiled_path):
-    xml_files = [
-        "res/layout/ocf_twitter_logo.xml",
-        "res/layout/login_toolbar_seamful_custom_view.xml",
-    ]
-    for xml_file in xml_files:
-        file_path = os.path.join(decompiled_path, xml_file)
-        if not os.path.exists(file_path):
+def modify_manifest(decompiled_dir: Path) -> None:
+    """<application> に android:extractNativeLibs="true" を設定する（テキスト編集）。"""
+    manifest = decompiled_dir / "AndroidManifest.xml"
+    if not manifest.is_file():
+        return
+
+    text = manifest.read_text(encoding="utf-8")
+    match = re.search(r"<application\b[^>]*>", text, flags=re.S)
+    if not match:
+        print("  Warning: <application> not found in AndroidManifest.xml")
+        return
+
+    tag = match.group(0)
+    attr = 'android:extractNativeLibs="true"'
+    if "android:extractNativeLibs" in tag:
+        new_tag = re.sub(r'android:extractNativeLibs="[^"]*"', attr, tag)
+    else:
+        new_tag = tag.replace("<application", f"<application {attr}", 1)
+
+    if new_tag != tag:
+        manifest.write_text(text[: match.start()] + new_tag + text[match.end() :], encoding="utf-8")
+
+
+def modify_xml(decompiled_dir: Path) -> None:
+    for rel in ("res/layout/ocf_twitter_logo.xml", "res/layout/login_toolbar_seamful_custom_view.xml"):
+        path = decompiled_dir / rel
+        if not path.is_file():
             continue
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = path.read_text(encoding="utf-8")
         content = content.replace("?dynamicColorGray1100", "@color/twitter_blue")
         content = content.replace("@color/gray_1100", "@color/twitter_blue")
         content = re.sub(r"#ff1d9bf0|#ff1da1f2", "@color/twitter_blue", content, flags=re.IGNORECASE)
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        path.write_text(content, encoding="utf-8")
 
 
-def modify_styles(decompiled_path, color_hex, color_name):
-    styles_path = os.path.join(decompiled_path, "res/values/styles.xml")
-    if not os.path.exists(styles_path):
+def modify_styles(decompiled_dir: Path) -> None:
+    styles_path = decompiled_dir / "res/values/styles.xml"
+    if not styles_path.is_file():
         return
     tree = ET.parse(styles_path)
-    root = tree.getroot()
-    for style in root.findall("style"):
+    for style in tree.getroot().findall("style"):
         name = style.get("name", "")
-        if name in ["TwitterBase.Dim", "TwitterBase.LightsOut", "TwitterBase.Standard"]:
+        if name in ("TwitterBase.Dim", "TwitterBase.LightsOut", "TwitterBase.Standard"):
             for item in style.findall("item"):
                 if item.get("name") == "coreColorBadgeVerified":
                     item.text = "@color/blue_500"
-        elif name in ["PaletteDim", "PaletteLightsOut", "PaletteStandard"]:
+        elif name in ("PaletteDim", "PaletteLightsOut", "PaletteStandard"):
             for item in style.findall("item"):
                 if item.get("name") == "abstractColorUnread":
                     item.text = "@color/twitter_blue_opacity_50"
                 elif item.get("name") == "abstractColorLink" and name == "PaletteStandard":
                     item.text = "@color/twitter_blue"
-        elif name in ["Theme.LaunchScreen"]:
+        elif name == "Theme.LaunchScreen":
             for item in style.findall("item"):
                 if item.get("name") == "windowSplashScreenBackground":
                     item.text = "@color/twitter_blue"
     tree.write(styles_path, encoding="utf-8", xml_declaration=True)
 
 
-def modify_colors(decompiled_path, color_hex):
-    colors_path = os.path.join(decompiled_path, "res/values/colors.xml")
-    if not os.path.exists(colors_path):
+def modify_colors(decompiled_dir: Path, color_hex: str) -> None:
+    colors_path = decompiled_dir / "res/values/colors.xml"
+    if not colors_path.is_file():
         return
     tree = ET.parse(colors_path)
-    root = tree.getroot()
-    hex_color = f"#ff{color_hex}"
-    opacity_map = {
-        "twitter_blue": hex_color,
+    overrides = {
+        "twitter_blue": f"#ff{color_hex}",
         "deep_transparent_twitter_blue": f"#cc{color_hex}",
         "twitter_blue_opacity_30": f"#4d{color_hex}",
         "twitter_blue_opacity_50": f"#80{color_hex}",
         "twitter_blue_opacity_58": f"#95{color_hex}",
     }
-    for color_tag in root.findall("color"):
-        name = color_tag.get("name", "")
-        if name in opacity_map:
-            color_tag.text = opacity_map[name]
+    for tag in tree.getroot().findall("color"):
+        name = tag.get("name", "")
+        if name in overrides:
+            tag.text = overrides[name]
     tree.write(colors_path, encoding="utf-8", xml_declaration=True)
 
 
-def hex_to_smali(hex_color):
+def hex_to_smali(hex_color: str) -> str:
     int_color = int(hex_color, 16)
     smali_int = (int_color ^ 0xFFFFFF) + 1
     return f"-0x{smali_int:06x}".lower()
 
 
-def modify_smali(decompiled_path, color_hex):
+def modify_smali(decompiled_dir: Path, color_hex: str) -> None:
     smali_color = hex_to_smali(color_hex) + "00000000L"
     patterns = {
         re.compile(r"-0xe2641000000000L", re.IGNORECASE): smali_color,
         re.compile(r"0xff1d9bf0L", re.IGNORECASE): f"0xff{color_hex}L",
     }
-    for root_dir, _, files in os.walk(decompiled_path):
-        for file in files:
-            if not file.endswith(".smali"):
-                continue
-            smali_path = os.path.join(root_dir, file)
-            try:
-                with open(smali_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                original = content
-                for pattern, replacement in patterns.items():
-                    content = pattern.sub(replacement, content)
-                if content != original:
-                    with open(smali_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-            except Exception:
-                continue
-
-
-def find_android_tool(tool_name):
-    android_home = os.environ.get("ANDROID_HOME")
-    if not android_home:
-        return tool_name
-    build_tools_dir = os.path.join(android_home, "build-tools")
-    if not os.path.exists(build_tools_dir):
-        return tool_name
-    versions = sorted(os.listdir(build_tools_dir), reverse=True)
-    for version in versions:
-        tool_path = os.path.join(build_tools_dir, version, tool_name)
-        if os.path.exists(tool_path):
-            return tool_path
-    return tool_name
-
-
-def sign_apk_v2(unsigned_apk_path, signed_apk_path):
-    print(f"Signing: {os.path.basename(unsigned_apk_path)}")
-
-    aligned_apk = unsigned_apk_path + ".aligned"
-    zipalign_tool = find_android_tool("zipalign")
-
-    align_cmd = [zipalign_tool, "-f", "-v", "4", unsigned_apk_path, aligned_apk]
-    try:
-        subprocess.run(align_cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"zipalign failed: {e.stderr}")
-        shutil.copy(unsigned_apk_path, aligned_apk)
-
-    apksigner_tool = find_android_tool("apksigner")
-    sign_cmd = [
-        apksigner_tool, "sign",
-        "--ks", KEYSTORE_PATH,
-        "--ks-pass", f"pass:{STOREPASS}",
-        "--ks-key-alias", ALIAS,
-        "--key-pass", f"pass:{KEYPASS}",
-        "--out", signed_apk_path,
-        aligned_apk
-    ]
-
-    result = subprocess.run(sign_cmd, capture_output=True, text=True)
-    if os.path.exists(aligned_apk):
+    changed = 0
+    for smali_path in decompiled_dir.rglob("*.smali"):
         try:
-            os.remove(aligned_apk)
-        except OSError:
-            pass
+            content = smali_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        new_content = content
+        for pattern, replacement in patterns.items():
+            new_content = pattern.sub(replacement, new_content)
+        if new_content != content:
+            smali_path.write_text(new_content, encoding="utf-8")
+            changed += 1
 
-    if result.returncode != 0:
-        print(f"apksigner failed: {result.stderr}")
-        raise subprocess.CalledProcessError(result.returncode, sign_cmd, result.stdout, result.stderr)
+    print(f"  smali: patched {changed} file(s)")
+    if changed == 0:
+        print("  ⚠️ Warning: no smali color constants matched; the app may have changed upstream.")
 
-    print(f"✅ Signed: {os.path.basename(signed_apk_path)}")
+
+# --------------------------------------------------------------------------
+# 署名
+# --------------------------------------------------------------------------
+def require_signing_env() -> None:
+    missing = [n for n in ("STOREPASS", "KEYPASS", "ALIAS") if not os.environ.get(n)]
+    if missing:
+        sys.exit(f"❌ Missing required environment variable(s): {', '.join(missing)}")
+    if not Path(KEYSTORE_PATH).is_file():
+        sys.exit(f"❌ Keystore not found: {KEYSTORE_PATH}")
+
+
+def sign_apk(unsigned_apk: Path, signed_apk: Path) -> None:
+    print(f"Signing: {unsigned_apk.name}")
+    aligned = unsigned_apk.with_suffix(".aligned.apk")
+    try:
+        # zipalign の失敗は致命的（不整合な APK を黙って署名しない）
+        run_checked([find_android_tool("zipalign"), "-f", "4", str(unsigned_apk), str(aligned)], "zipalign")
+
+        apksigner = find_android_tool("apksigner")
+        # パスワードはコマンドラインに出さず、環境変数経由で渡す
+        run_checked(
+            [
+                apksigner, "sign",
+                "--ks", KEYSTORE_PATH,
+                "--ks-pass", "env:STOREPASS",
+                "--ks-key-alias", os.environ["ALIAS"],
+                "--key-pass", "env:KEYPASS",
+                "--out", str(signed_apk),
+                str(aligned),
+            ],
+            "apksigner sign",
+        )
+        run_checked([apksigner, "verify", str(signed_apk)], "apksigner verify")
+    finally:
+        aligned.unlink(missing_ok=True)
+        Path(str(signed_apk) + ".idsig").unlink(missing_ok=True)
+    print(f"✅ Signed & verified: {signed_apk.name}")
+
+
+# --------------------------------------------------------------------------
+# メイン
+# --------------------------------------------------------------------------
+def parse_version(apk_version: str) -> tuple[str, str]:
+    match = re.search(r"(\d+\.\d+\.\d+)-release\.(\d+)", apk_version)
+    if match:
+        return match.group(1), match.group(2)
+    return apk_version.split("-release")[0].split("-")[0], "0"
+
+
+def main() -> None:
+    apk_version = os.environ.get("APK_VERSION") or os.environ.get("monsivamon_TAG")
+    if not apk_version or apk_version.lower() in ("null", "none"):
+        sys.exit("Error: APK_VERSION is not set or invalid.")
+    print(f"APK version: {apk_version}")
+
+    apks = sorted(DOWNLOADS_DIR.glob("*.apk")) if DOWNLOADS_DIR.is_dir() else []
+    if not apks:
+        sys.exit(f"Error: No APK file found in {DOWNLOADS_DIR}/")
+    apk_path = apks[0]
+    print(f"Found APK: {apk_path}")
+
+    require_signing_env()
+    apktool = find_apktool()
+    find_android_tool("zipalign")  # 早期チェック
+    find_android_tool("apksigner")
+
+    clean_version, release_id = parse_version(apk_version)
+    print(f"Clean version: {clean_version}, Release ID: {release_id}")
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    built: list[str] = []
+    failed: list[str] = []
+
+    for color_hex, color_name in THEME_COLORS.items():
+        print("\n" + "=" * 70)
+        print(f"Processing {color_name} theme (color: #{color_hex})")
+        print("=" * 70)
+
+        work_dir = Path(f"decompiled-twitter-{clean_version}-{color_name}")
+        unsigned = OUTPUT_DIR / f"unsigned-{color_name}.apk"
+        final_name = f"Origin-Twitter-Neo.{color_name}.v{clean_version}-release.{release_id}.apk"
+        final_path = OUTPUT_DIR / final_name
+
+        try:
+            decompile_apk(apktool, apk_path, work_dir)
+            fix_webview_xml(work_dir)
+            update_apktool_yml(work_dir)
+            modify_manifest(work_dir)
+            modify_xml(work_dir)
+            modify_styles(work_dir)
+            modify_colors(work_dir, color_hex)
+            modify_smali(work_dir, color_hex)
+            recompile_apk(apktool, work_dir, unsigned)
+            sign_apk(unsigned, final_path)
+            built.append(final_name)
+            print(f"✅ Successfully created: {final_name}")
+        except Exception as exc:  # noqa: BLE001 - 1 色の失敗で他の色のログ取得を止めない
+            failed.append(color_name)
+            print(f"❌ Error processing {color_name}: {exc!r}")
+            if not isinstance(exc, subprocess.CalledProcessError):
+                traceback.print_exc()
+            final_path.unlink(missing_ok=True)
+        finally:
+            unsigned.unlink(missing_ok=True)
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    print("\n" + "=" * 70)
+    print(f"Built {len(built)}/{len(THEME_COLORS)} variant(s)")
+
+    if failed:
+        # 部分的な成果物をリリースさせないため、manifest は書かずに異常終了する
+        BUILD_MANIFEST.unlink(missing_ok=True)
+        sys.exit(f"❌ Failed variants: {', '.join(failed)}")
+
+    BUILD_MANIFEST.write_text(
+        json.dumps({"apk_version": apk_version, "files": built}, indent=2), encoding="utf-8"
+    )
+    print("All color variants processed!")
 
 
 if __name__ == "__main__":
