@@ -57,9 +57,8 @@ jobs:
           }
 
           # /releases/latest は pre-release を除外するため使用しない。
-          # /releases から draft 以外を新しい順に確認し、
-          # 無印 twitter-piko APK を含む最初の Release を採用する。
-          PIKO_RELEASES=$(api "https://api.github.com/repos/monsivamon/twitter-apk/releases?per_page=30")
+          # API の配列順ではなく、対象 APK を含む Release を公開日時で比較する。
+          PIKO_RELEASES=$(api "https://api.github.com/repos/monsivamon/twitter-apk/releases?per_page=100")
 
           PIKO_RELEASE=$(echo "$PIKO_RELEASES" | jq -c '
             [
@@ -76,10 +75,13 @@ jobs:
               | select(($assets | length) > 0)
               | {
                   tag_name: $release.tag_name,
+                  published_at: $release.published_at,
                   prerelease: $release.prerelease,
                   asset: $assets[0]
                 }
-            ][0]
+            ]
+            | sort_by(.published_at)
+            | last
           ')
 
           if [ -z "$PIKO_RELEASE" ] || [ "$PIKO_RELEASE" = "null" ]; then
@@ -88,6 +90,7 @@ jobs:
           fi
 
           PIKO_RELEASE_TAG=$(echo "$PIKO_RELEASE" | jq -r '.tag_name')
+          PIKO_PUBLISHED_AT=$(echo "$PIKO_RELEASE" | jq -r '.published_at')
           PIKO_PRERELEASE=$(echo "$PIKO_RELEASE" | jq -r '.prerelease')
           PIKO_ASSET_NAME=$(echo "$PIKO_RELEASE" | jq -r '.asset.name')
           PIKO_ASSET_URL=$(echo "$PIKO_RELEASE" | jq -r '.asset.browser_download_url')
@@ -104,6 +107,7 @@ jobs:
 
           {
             echo "PIKO_RELEASE_TAG=$PIKO_RELEASE_TAG"
+            echo "PIKO_PUBLISHED_AT=$PIKO_PUBLISHED_AT"
             echo "PIKO_PRERELEASE=$PIKO_PRERELEASE"
             echo "PIKO_ASSET_NAME=$PIKO_ASSET_NAME"
             echo "PIKO_ASSET_URL=$PIKO_ASSET_URL"
@@ -111,7 +115,7 @@ jobs:
             echo "RELEASE_TAG=$RELEASE_TAG"
           } >> "$GITHUB_ENV"
 
-          echo "Upstream release : $PIKO_RELEASE_TAG (prerelease=$PIKO_PRERELEASE)"
+          echo "Upstream release : $PIKO_RELEASE_TAG (published=$PIKO_PUBLISHED_AT, prerelease=$PIKO_PRERELEASE)"
           echo "Selected APK     : $PIKO_ASSET_NAME"
           echo "Release tag      : $RELEASE_TAG"
 
