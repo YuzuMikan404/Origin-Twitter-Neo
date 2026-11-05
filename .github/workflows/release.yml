@@ -151,7 +151,7 @@ jobs:
 
       - name: Install Python dependencies
         if: env.SKIP == 'false'
-        run: python -m pip install --upgrade pip -r requirements.txt
+        run: python -m pip install --upgrade --upgrade-strategy eager pip requests
 
       # Android SDK はランナーイメージに最新版が同梱されている。
       # 古い cmdline-tools を手動で入れ直さず、同梱の最新 build-tools を使う。
